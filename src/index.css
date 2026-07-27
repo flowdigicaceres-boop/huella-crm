@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+
+:root {
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background-color: #f8fafc; /* slate-50 */
+  color: #0f172a; /* slate-900 */
+}
+
+/* Custom Scrollbar for better mobile feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; /* slate-300 */
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* slate-400 */
+}
+
+/* Leaflet map styles */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Override Leaflet controls for clean UI */
+.leaflet-bar {
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+}
+
+.leaflet-bar a {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-bottom: 1px solid #f1f5f9 !important;
+  transition: background-color 0.2s;
+}
+
+.leaflet-bar a:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Smooth transition animations */
+.fade-in {
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Add custom focus styles for mobile tap targets */
+button, a, input, select, textarea {
+  outline: none;
+}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #3b82f6; /* blue-500 */
+  outline-offset: 2px;
+}
+
+/* Pull to refresh UI styling */
+.pull-to-refresh-container {
+  overflow-y: auto;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+}
