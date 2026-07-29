@@ -14,7 +14,8 @@ import {
   Crosshair, 
   Navigation,
   AlertCircle,
-  Filter
+  Filter,
+  Loader
 } from 'lucide-react';
 import { db } from '../services/db';
 import { geocodeBuilding } from '../services/geocoding';
@@ -77,7 +78,7 @@ export default function MapView({
 }) {
   const [geocodedEdificios, setGeocodedEdificios] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
-  const [mapCenter, setMapCenter] = useState([40.029, -6.088]); // Plasencia por defecto como punto neutro
+  const [mapCenter, setMapCenter] = useState([40.029, -6.088]); // Plasencia por defecto
   const [mapZoom, setMapZoom] = useState(14);
   const [loadingGeocodes, setLoadingGeocodes] = useState(true);
   const [unmappedCount, setUnmappedCount] = useState(0);
@@ -88,7 +89,6 @@ export default function MapView({
     return localStorage.getItem('huella_filter_poblacion') || 'todos';
   });
 
-  // Lista única de poblaciones
   const poblaciones = useMemo(() => {
     const pobs = new Set();
     edificios.forEach(e => {
@@ -123,8 +123,9 @@ export default function MapView({
           setLoadingGeocodes(false);
         }
 
+        // BÚSQUEDA CONTINUA EN SEGUNDO PLANO PARA RESOLVER EL 100% DE EDIFICIOS
         if (unmapped.length > 0) {
-          geocodeUnmappedSlowly(unmapped, () => isMounted);
+          geocodeAllUnmappedContinuously(unmapped, () => isMounted);
         }
       } catch (err) {
         console.error('Error cargando geocodes:', err);
@@ -138,13 +139,31 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // Edificios visibles filtrados por la población seleccionada
+  // Procesa continuamente todos los edificios no mapeados
+  const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
+    for (let i = 0; i < list.length; i++) {
+      if (!checkIsMounted()) break;
+      const b = list[i];
+      try {
+        const coords = await geocodeBuilding(b);
+        if (coords && checkIsMounted()) {
+          setGeocodedEdificios(prev => [...prev, { ...b, coords }]);
+          setUnmappedCount(c => Math.max(0, c - 1));
+        }
+      } catch (e) {
+        console.warn('Geocodificación progresiva:', e);
+      }
+      // Pausa respetuosa de 800ms entre búsquedas para no saturar OpenStreetMap
+      await new Promise(r => setTimeout(r, 800));
+    }
+  };
+
   const edificiosVisibles = useMemo(() => {
     if (poblacionFiltro === 'todos') return geocodedEdificios;
     return geocodedEdificios.filter(e => String(e.POBLACION || '').trim() === poblacionFiltro);
   }, [geocodedEdificios, poblacionFiltro]);
 
-  // CALCULO AUTOMÁTICO DEL CENTRO: Se centra exactamente en el centroide de Plasencia o la zona visible
+  // Centrado dinámico en la zona filtrada
   useEffect(() => {
     if (edificiosVisibles.length > 0) {
       let sumLat = 0;
@@ -167,24 +186,6 @@ export default function MapView({
       }
     }
   }, [edificiosVisibles, poblacionFiltro]);
-
-  const geocodeUnmappedSlowly = async (list, checkIsMounted) => {
-    const maxToGeocode = Math.min(list.length, 30);
-    
-    for (let i = 0; i < maxToGeocode; i++) {
-      if (!checkIsMounted()) break;
-      const b = list[i];
-      try {
-        const coords = await geocodeBuilding(b);
-        if (coords && checkIsMounted()) {
-          setGeocodedEdificios(prev => [...prev, { ...b, coords }]);
-          setUnmappedCount(c => Math.max(0, c - 1));
-        }
-      } catch (e) {
-        console.warn('Geocodificación progresiva:', e);
-      }
-    }
-  };
 
   const geolocateUser = (fly = true) => {
     setGpsError(null);
@@ -237,9 +238,11 @@ export default function MapView({
         <div className="flex items-center space-x-1 font-semibold text-slate-700 shrink-0">
           <Building size={14} className="text-blue-500 shrink-0" />
           <span>{edificiosVisibles.length} en mapa</span>
+          {unmappedCount > 0 && (
+            <Loader size={10} className="animate-spin text-blue-500 ml-1" title={`Buscando ${unmappedCount} restantes en segundo plano...`} />
+          )}
         </div>
 
-        {/* Filtro rápido de Población directo en el mapa */}
         <div className="relative flex-1 max-w-[170px]">
           <select
             value={poblacionFiltro}
