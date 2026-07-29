@@ -134,7 +134,6 @@ async function geocodeFastRealStreet(b) {
   return null;
 }
 
-// CHINCHETA DINÁMICA DE COLORES SEGÚN EL ESTADO DEL EDIFICIO
 const getMarkerIcon = (status) => {
   const st = (status || '').toLowerCase().trim();
   
@@ -307,7 +306,6 @@ export default function MapView({
     }
   };
 
-  // COMBINACIÓN EN TIEMPO REAL: Mezcla las coordenadas con el ESTADO IC más reciente del edificio
   const edificiosVisibles = useMemo(() => {
     let filtered = edificios;
     if (poblacionFiltro !== 'todos') {
@@ -331,7 +329,7 @@ export default function MapView({
       }
 
       return {
-        ...b, // Garantiza que lee el estado actualizado en vivo (ESTADO IC)
+        ...b,
         coords
       };
     });
@@ -409,7 +407,7 @@ export default function MapView({
 
       {/* Map Container */}
       <div className="flex-1 w-full rounded-2xl overflow-hidden border border-slate-100 shadow-xs relative">
-        {loadingGeocodes && geocodedEdificios.length === 0 && (
+        {loadingGeocodes && Object.keys(cachedGeocodesMap).length === 0 && (
           <div className="absolute inset-0 z-50 bg-slate-50/80 backdrop-blur-xs flex items-center justify-center flex-col space-y-3">
             <div className="w-10 h-10 border-4 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div>
             <p className="text-slate-500 text-xs font-semibold">Cargando mapa de la zona...</p>
