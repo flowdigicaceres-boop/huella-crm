@@ -35,19 +35,23 @@ export function useGoogleSheets() {
     }
   }, []);
 
-  // Enviar visita a Google Apps Script especificando la pestaña de destino
+  // Enviar visita a Google Apps Script (Guarda en pestaña VISITAS y actualiza Columna K de EDIFICIOS)
   const sendVisitaToSheets = useCallback(async (visita) => {
     if (!scriptUrl) throw new Error('No Apps Script URL configured');
     
-    // Payload ultra-completo con identificadores de pestaña para asegurar que el Script lo escriba bien
+    // Payload enviado con todos los alias posibles para que Google Apps Script 
+    // escriba en la pestaña VISITAS y reescriba la Columna K (COMENTARIO) de EDIFICIOS
     const payload = {
       action: 'addVisita',
       type: 'visita',
       tab: 'VISITAS',
       hoja: 'VISITAS',
       sheetName: 'VISITAS',
+      updateEdificio: true,
+      columnaK: visita.Comentario || '',
       gescal: visita.GESCAL,
       GESCAL: visita.GESCAL,
+      GESCAL26: visita.GESCAL,
       resultado: visita.Resultado,
       Resultado: visita.Resultado,
       comentario: visita.Comentario || '',
@@ -179,12 +183,12 @@ export function useGoogleSheets() {
     };
     
     try {
-      // Guardar en base de datos local
+      // 1. Guardar visita localmente y actualizar Columna K (COMENTARIO) en la base de datos local
       const savedVisitaObj = await db.addVisita(nuevaVisita);
       await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioLimpio);
       await loadLocalData();
       
-      // Enviar a Google Sheets
+      // 2. Enviar a Google Sheets
       if (navigator.onLine && scriptUrl) {
         try {
           await sendVisitaToSheets(savedVisitaObj);
