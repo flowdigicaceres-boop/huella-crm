@@ -71,8 +71,8 @@ function normalizeText(str) {
     .replace(/\s+/g, ' ');
 }
 
-// BÚSQUEDA DIRECTA EN CALLES REALES
-async function geocodeOnRealStreet(b) {
+// MOTOR PROFESIONAL DE GEOCODIFICACIÓN (ESRI ARCGIS + PHOTON)
+async function geocodeFastRealStreet(b) {
   const poblacion = resolvePoblacion(b);
   const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
   const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();
@@ -80,36 +80,40 @@ async function geocodeOnRealStreet(b) {
 
   if (!nombre) return null;
 
-  // 1. Intento Calle + Número + Población
+  const fullAddress = `${tipo} ${nombre} ${num}, ${poblacion}, España`.replace(/\s+/g, ' ').trim();
+
+  // 1. Esri ArcGIS World Geocoding (Ultra rápido, sin límite de 40)
   try {
-    const q1 = `${tipo} ${nombre} ${num}, ${poblacion}, España`;
-    const res1 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q1)}&limit=1`);
-    const data1 = await res1.json();
-    if (data1 && data1.length > 0) {
-      return { lat: parseFloat(data1[0].lat), lon: parseFloat(data1[0].lon) };
+    const urlArcGIS = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(fullAddress)}&maxLocations=1`;
+    const resArc = await fetch(urlArcGIS);
+    const dataArc = await resArc.json();
+    if (dataArc && dataArc.candidates && dataArc.candidates.length > 0) {
+      const loc = dataArc.candidates[0].location;
+      return { lat: loc.y, lon: loc.x };
     }
   } catch (e) {}
 
-  // 2. Intento Nombre + Número + Población
+  // 2. Photon Komoot API (Motor alternativo de alta velocidad)
   try {
-    const q2 = `${nombre} ${num}, ${poblacion}, España`;
-    const res2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q2)}&limit=1`);
-    const data2 = await res2.json();
-    if (data2 && data2.length > 0) {
-      return { lat: parseFloat(data2[0].lat), lon: parseFloat(data2[0].lon) };
+    const urlPhoton = `https://photon.komoot.io/api/?q=${encodeURIComponent(fullAddress)}&limit=1`;
+    const resPho = await fetch(urlPhoton);
+    const dataPho = await resPho.json();
+    if (dataPho && dataPho.features && dataPho.features.length > 0) {
+      const coords = dataPho.features[0].geometry.coordinates;
+      return { lat: coords[1], lon: coords[0] };
     }
   } catch (e) {}
 
-  // 3. Intento Calle Real en Municipio
+  // 3. Búsqueda por Calle en Esri ArcGIS
   try {
-    const q3 = `${nombre}, ${poblacion}, España`;
-    const res3 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q3)}&limit=1`);
-    const data3 = await res3.json();
-    if (data3 && data3.length > 0) {
-      const streetLat = parseFloat(data3[0].lat);
-      const streetLon = parseFloat(data3[0].lon);
-      const offset = (num % 30) * 0.00005;
-      return { lat: streetLat + offset, lon: streetLon + offset };
+    const streetOnly = `${nombre}, ${poblacion}, España`;
+    const urlStreet = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(streetOnly)}&maxLocations=1`;
+    const resStreet = await fetch(urlStreet);
+    const dataStreet = await resStreet.json();
+    if (dataStreet && dataStreet.candidates && dataStreet.candidates.length > 0) {
+      const loc = dataStreet.candidates[0].location;
+      const offset = (num % 30) * 0.00006;
+      return { lat: loc.y + offset, lon: loc.x + offset };
     }
   } catch (e) {}
 
@@ -193,7 +197,6 @@ export default function MapView({
     return Array.from(pobsSet).sort();
   }, [edificios]);
 
-  // VUELO INSTANTÁNEO DE CÁMARA AL CAMBIAR DE MUNICIPIO
   useEffect(() => {
     if (poblacionFiltro !== 'todos') {
       const pobNorm = normalizeText(poblacionFiltro);
@@ -205,7 +208,7 @@ export default function MapView({
     }
   }, [poblacionFiltro]);
 
-  // Rastreo GPS
+  // Rastreo GPS en tiempo real
   useEffect(() => {
     let watchId;
     if (navigator.geolocation) {
@@ -230,9 +233,9 @@ export default function MapView({
       try {
         setLoadingGeocodes(true);
 
-        if (!localStorage.getItem('huella_purge_no_circles_v9')) {
+        if (!localStorage.getItem('huella_purge_arcgis_v10')) {
           await db.clearGeocodesCache();
-          localStorage.setItem('huella_purge_no_circles_v9', 'true');
+          localStorage.setItem('huella_purge_arcgis_v10', 'true');
         }
 
         const cached = await db.getTodosGeocodes();
@@ -269,11 +272,11 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // PRIORIZACIÓN: Mapea primero los edificios de la ciudad seleccionada en el desplegable
+  // GEOCODIFICACIÓN DE ALTA VELOCIDAD SIN FRENOS NI BLOQUEOS
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     const targetNorm = normalizeText(poblacionFiltro);
     
-    // Ordena para procesar primero los edificios de la población activa
+    // Mapea primero los edificios de la ciudad activa
     const sortedList = [...list].sort((a, b) => {
       const isA = normalizeText(resolvePoblacion(a)).includes(targetNorm);
       const isB = normalizeText(resolvePoblacion(b)).includes(targetNorm);
@@ -285,7 +288,7 @@ export default function MapView({
       const b = sortedList[i];
       const gescalKey = String(b.GESCAL26 || i);
 
-      const finalCoords = await geocodeOnRealStreet(b);
+      const finalCoords = await geocodeFastRealStreet(b);
 
       if (finalCoords && checkIsMounted()) {
         await db.saveGeocode(gescalKey, finalCoords.lat, finalCoords.lon);
@@ -293,8 +296,8 @@ export default function MapView({
         setUnmappedCount(c => Math.max(0, c - 1));
       }
 
-      // Pausa respetuosa de 1.2s para cumplir las normas oficiales de mapas sin bloqueos
-      await new Promise(r => setTimeout(r, 1200));
+      // Pausa rápida de 200ms para volar mapeando sin bloqueos
+      await new Promise(r => setTimeout(r, 200));
     }
   };
 
@@ -307,6 +310,27 @@ export default function MapView({
       return pobNorm.includes(targetNorm) || targetNorm.includes(pobNorm);
     });
   }, [geocodedEdificios, poblacionFiltro]);
+
+  useEffect(() => {
+    if (edificiosVisibles.length > 0) {
+      let sumLat = 0;
+      let sumLon = 0;
+      let validCount = 0;
+
+      edificiosVisibles.forEach(b => {
+        if (b.coords && b.coords.lat && b.coords.lon) {
+          sumLat += parseFloat(b.coords.lat);
+          sumLon += parseFloat(b.coords.lon);
+          validCount++;
+        }
+      });
+
+      if (validCount > 0) {
+        setMapCenter([sumLat / validCount, sumLon / validCount]);
+        setMapZoom(14);
+      }
+    }
+  }, [edificiosVisibles.length, poblacionFiltro]);
 
   const handleCenterUserGPS = () => {
     if (userLocation) {
