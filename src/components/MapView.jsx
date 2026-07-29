@@ -18,10 +18,10 @@ import {
   Loader
 } from 'lucide-react';
 import { db } from '../services/db';
-import { geocodeBuilding } from '../services/geocoding';
 
 import 'leaflet/dist/leaflet.css';
 
+// Icono personalizado para los edificios
 const getMarkerIcon = (status) => {
   const st = (status || '').toLowerCase();
   let color = 'bg-amber-500';
@@ -46,16 +46,19 @@ const getMarkerIcon = (status) => {
   });
 };
 
+// Icono GPS del usuario (Punto Azul pulsante)
 const userLocationIcon = L.divIcon({
   className: 'user-location-icon bg-transparent border-none',
   html: `
-    <div class="relative flex h-8 w-8 items-center justify-center">
-      <div class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-60"></div>
-      <div class="relative inline-flex rounded-full h-4 w-4 border-2 border-white shadow-md bg-blue-600"></div>
+    <div class="relative flex h-10 w-10 items-center justify-center">
+      <div class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-50"></div>
+      <div class="relative inline-flex rounded-full h-5 w-5 border-2 border-white shadow-lg bg-blue-600 items-center justify-center">
+        <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+      </div>
     </div>
   `,
-  iconSize: [32, 32],
-  iconAnchor: [16, 16]
+  iconSize: [40, 40],
+  iconAnchor: [20, 20]
 });
 
 function MapController({ center, zoom }) {
@@ -71,6 +74,16 @@ function MapController({ center, zoom }) {
   return null;
 }
 
+// Función limpiadora de direcciones para Extremadura (Plasencia, Cáceres, Navalmoral)
+function buildCleanAddress(b) {
+  const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
+  const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av\//i, '').trim();
+  const num = String(b['NUM'] || '').trim();
+  const pob = String(b.POBLACION || 'Plasencia').trim();
+  
+  return `${tipo} ${nombre} ${num}, ${pob}, Extremadura, España`.replace(/\s+/g, ' ').trim();
+}
+
 export default function MapView({ 
   edificios = [], 
   setSelectedBuildingGescal, 
@@ -84,7 +97,6 @@ export default function MapView({
   const [unmappedCount, setUnmappedCount] = useState(0);
   const [gpsError, setGpsError] = useState(null);
 
-  // Leer la población persistente guardada por el usuario
   const [poblacionFiltro, setPoblacionFiltro] = useState(() => {
     return localStorage.getItem('huella_filter_poblacion') || 'todos';
   });
@@ -97,6 +109,31 @@ export default function MapView({
     return Array.from(pobs).sort();
   }, [edificios]);
 
+  // RASTREO GPS EN TIEMPO REAL PERMANENTE (PUNTO AZUL)
+  useEffect(() => {
+    let watchId;
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const coords = [pos.coords.latitude, pos.coords.longitude];
+          setUserLocation(coords);
+        },
+        (err) => {
+          console.warn('GPS watch error:', err);
+          setGpsError('GPS inactivo o sin permiso.');
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 3000 }
+      );
+    } else {
+      setGpsError('Navegador sin soporte GPS.');
+    }
+
+    return () => {
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
+
+  // Carga de geocodes
   useEffect(() => {
     let isMounted = true;
 
@@ -123,7 +160,6 @@ export default function MapView({
           setLoadingGeocodes(false);
         }
 
-        // BÚSQUEDA CONTINUA EN SEGUNDO PLANO PARA RESOLVER EL 100% DE EDIFICIOS
         if (unmapped.length > 0) {
           geocodeAllUnmappedContinuously(unmapped, () => isMounted);
         }
@@ -134,27 +170,34 @@ export default function MapView({
     }
 
     loadGeocodes();
-    geolocateUser(false);
 
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // Procesa continuamente todos los edificios no mapeados
+  // Geocodificación optimizada para OpenStreetMap
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     for (let i = 0; i < list.length; i++) {
       if (!checkIsMounted()) break;
       const b = list[i];
       try {
-        const coords = await geocodeBuilding(b);
-        if (coords && checkIsMounted()) {
-          setGeocodedEdificios(prev => [...prev, { ...b, coords }]);
+        const address = buildCleanAddress(b);
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
+        
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data && data.length > 0 && checkIsMounted()) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          await db.saveGeocode(b.GESCAL26, lat, lon);
+          
+          setGeocodedEdificios(prev => [...prev, { ...b, coords: { lat, lon } }]);
           setUnmappedCount(c => Math.max(0, c - 1));
         }
       } catch (e) {
-        console.warn('Geocodificación progresiva:', e);
+        console.warn('Error geocodificando:', e);
       }
-      // Pausa respetuosa de 800ms entre búsquedas para no saturar OpenStreetMap
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 600));
     }
   };
 
@@ -163,7 +206,7 @@ export default function MapView({
     return geocodedEdificios.filter(e => String(e.POBLACION || '').trim() === poblacionFiltro);
   }, [geocodedEdificios, poblacionFiltro]);
 
-  // Centrado dinámico en la zona filtrada
+  // Centrado automático en la población visible
   useEffect(() => {
     if (edificiosVisibles.length > 0) {
       let sumLat = 0;
@@ -185,33 +228,17 @@ export default function MapView({
         setMapZoom(14);
       }
     }
-  }, [edificiosVisibles, poblacionFiltro]);
+  }, [edificiosVisibles.length, poblacionFiltro]);
 
-  const geolocateUser = (fly = true) => {
-    setGpsError(null);
-    if (!navigator.geolocation) {
-      setGpsError('Tu navegador no soporta geolocalización GPS.');
-      return;
+  // Centrar cámara en el usuario al pulsar botón GPS
+  const handleCenterUserGPS = () => {
+    if (userLocation) {
+      setMapCenter(userLocation);
+      setMapZoom(17);
+    } else {
+      setGpsError('Buscando señal GPS actual...');
+      setTimeout(() => setGpsError(null), 3000);
     }
-    
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = [pos.coords.latitude, pos.coords.longitude];
-        setUserLocation(coords);
-        if (fly) {
-          setMapCenter(coords);
-          setMapZoom(17);
-        }
-      },
-      (err) => {
-        console.warn('GPS error:', err);
-        if (fly) {
-          setGpsError('No se pudo obtener tu ubicación GPS.');
-          setTimeout(() => setGpsError(null), 4000);
-        }
-      },
-      { enableHighAccuracy: true, timeout: 7000 }
-    );
   };
 
   const handlePoblacionChange = (val) => {
@@ -239,7 +266,7 @@ export default function MapView({
           <Building size={14} className="text-blue-500 shrink-0" />
           <span>{edificiosVisibles.length} en mapa</span>
           {unmappedCount > 0 && (
-            <Loader size={10} className="animate-spin text-blue-500 ml-1" title={`Buscando ${unmappedCount} restantes en segundo plano...`} />
+            <Loader size={10} className="animate-spin text-blue-500 ml-1" title={`Buscando ${unmappedCount} restantes...`} />
           )}
         </div>
 
@@ -258,12 +285,12 @@ export default function MapView({
         </div>
 
         <button 
-          onClick={() => geolocateUser(true)}
+          onClick={handleCenterUserGPS}
           type="button"
           className="flex items-center space-x-1 font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg active:scale-95 transition shrink-0"
         >
           <Crosshair size={12} />
-          <span>GPS</span>
+          <span>Mi GPS</span>
         </button>
       </div>
 
@@ -279,7 +306,7 @@ export default function MapView({
         {loadingGeocodes && geocodedEdificios.length === 0 && (
           <div className="absolute inset-0 z-50 bg-slate-50/80 backdrop-blur-xs flex items-center justify-center flex-col space-y-3">
             <div className="w-10 h-10 border-4 border-blue-600/30 border-t-blue-600 rounded-full animate-spin"></div>
-            <p className="text-slate-500 text-xs font-semibold">Cargando ubicaciones de la zona...</p>
+            <p className="text-slate-500 text-xs font-semibold">Cargando mapa de la zona...</p>
           </div>
         )}
 
@@ -296,17 +323,19 @@ export default function MapView({
           
           <MapController center={mapCenter} zoom={mapZoom} />
 
+          {/* MARCADOR GPS DEL USUARIO (PUNTO AZUL) SIEMPRE VISIBLE */}
           {userLocation && (
             <>
               <Marker position={userLocation} icon={userLocationIcon} />
               <Circle 
                 center={userLocation} 
-                radius={80} 
-                pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 1 }} 
+                radius={100} 
+                pathOptions={{ color: '#2563eb', fillColor: '#3b82f6', fillOpacity: 0.2, weight: 1.5 }} 
               />
             </>
           )}
 
+          {/* MARCADORES DE LOS EDIFICIOS */}
           {edificiosVisibles.map((e, idx) => (
             <Marker 
               key={String(e.GESCAL26) || idx} 
