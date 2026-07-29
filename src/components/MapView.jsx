@@ -35,11 +35,10 @@ const TOWN_COORDS = {
   'miajadas': [39.152, -5.908]
 };
 
-// DETECTOR PRECISO Basado en Columna A (POBLACION) y Columna F (ZONA-GPON)
+// Detector de Municipio
 export function resolvePoblacion(e) {
   if (!e) return 'Plasencia';
 
-  // 1. Lectura directa de Columna A (POBLACION / Población)
   const rawPob = e['POBLACION'] ?? e['Población'] ?? e['Poblacion'] ?? e['MUNICIPIO'] ?? e['LOCALIDAD'] ?? '';
   const strPob = String(rawPob).trim();
 
@@ -55,7 +54,6 @@ export function resolvePoblacion(e) {
     return strPob.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
   }
 
-  // 2. Lectura secundaria de Columna F (ZONA-GPON: PLASENCIAB11.2, PLASENCIAT2.1)
   const gpon = String(e['ZONA-GPON'] || e['ZONA_GPON'] || e['ZONA'] || '').trim();
   if (/plasencia/i.test(gpon)) return 'Plasencia';
   if (/caceres|cáceres/i.test(gpon)) return 'Cáceres';
@@ -74,6 +72,7 @@ function normalizeText(str) {
     .replace(/\s+/g, ' ');
 }
 
+// Pseudo-aleatorio para dispersión
 function pseudoRandom(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -81,6 +80,31 @@ function pseudoRandom(str) {
     hash |= 0;
   }
   return (Math.abs(hash) % 1000) / 1000;
+}
+
+// FÓRMULA DE DISPERSIÓN POLAR ORGÁNICA (ELIMINA LAS LÍNEAS RECTAS)
+function getOrganicOffset(gescalKey) {
+  const angle = pseudoRandom(gescalKey + 'ang') * 2 * Math.PI; // Ámbar de 0 a 360 grados
+  const radius = 0.0006 + pseudoRandom(gescalKey + 'rad') * 0.0045; // Radio de 60m a 450m
+  const latOffset = radius * Math.cos(angle);
+  const lonOffset = radius * Math.sin(angle) * 1.3;
+  return { latOffset, lonOffset };
+}
+
+// Construye la dirección usando Columna L si existe o combinación limpia
+function buildFullSearchQuery(b) {
+  // Si existe dirección completa formateada (Columna L)
+  const colL = b['DIRECCION_COMPLETA'] || b['DIRECCION COMPLETA'] || b['DIRECCION'] || b['Dirección'];
+  if (colL && String(colL).trim().length > 5) {
+    return `${String(colL).trim()}, España`;
+  }
+
+  const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
+  const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();
+  const num = String(b['NUM'] || '').replace(/s\/n/i, '').trim();
+  const pob = resolvePoblacion(b);
+
+  return `${tipo} ${nombre} ${num}, ${pob}, Cáceres, España`.replace(/\s+/g, ' ').trim();
 }
 
 const getMarkerIcon = (status) => {
@@ -160,7 +184,7 @@ export default function MapView({
     return Array.from(pobsSet).sort();
   }, [edificios]);
 
-  // Rastreo GPS en tiempo real
+  // Rastreo GPS
   useEffect(() => {
     let watchId;
     if (navigator.geolocation) {
@@ -218,6 +242,7 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
+  // GEOCODIFICACIÓN CON BÚSQUEDA REAL Y DISPERSIÓN POLAR ORGÁNICA (SIN LÍNEAS RECTAS)
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     for (let i = 0; i < list.length; i++) {
       if (!checkIsMounted()) break;
@@ -226,53 +251,30 @@ export default function MapView({
       const poblacion = resolvePoblacion(b);
       const pobNorm = normalizeText(poblacion);
 
-      const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
-      const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();
-      const num = String(b['NUM'] || '').replace(/s\/n/i, '').trim();
-
       let finalCoords = null;
+      const queryStr = buildFullSearchQuery(b);
 
-      if (nombre) {
-        try {
-          const q1 = `${tipo} ${nombre} ${num}, ${poblacion}, Extremadura, España`.replace(/\s+/g, ' ');
-          const res1 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q1)}&limit=1`);
-          const data1 = await res1.json();
-          if (data1 && data1.length > 0) {
-            finalCoords = { lat: parseFloat(data1[0].lat), lon: parseFloat(data1[0].lon) };
-          }
-        } catch (e) {}
-
-        if (!finalCoords) {
-          try {
-            const q2 = `${nombre}, ${poblacion}, Extremadura, España`.replace(/\s+/g, ' ');
-            const res2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q2)}&limit=1`);
-            const data2 = await res2.json();
-            if (data2 && data2.length > 0) {
-              const offsetLat = (pseudoRandom(gescalKey + 'lat') - 0.5) * 0.0015;
-              const offsetLon = (pseudoRandom(gescalKey + 'lon') - 0.5) * 0.0015;
-              finalCoords = { lat: parseFloat(data2[0].lat) + offsetLat, lon: parseFloat(data2[0].lon) + offsetLon };
-            }
-          } catch (e) {}
+      // 1. Búsqueda real en OpenStreetMap con cabecera de petición oficial
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryStr)}&limit=1`, {
+          headers: { 'User-Agent': 'HuellaCRM-App/2.0' }
+        });
+        const data = await res.json();
+        if (data && data.length > 0) {
+          finalCoords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
         }
-      }
+      } catch (e) {}
 
+      // 2. Fallback Orgánico Circular (Círculo de puntos, nunca líneas rectas)
       if (!finalCoords) {
         let baseCenter = TOWN_COORDS[pobNorm];
-        if (!baseCenter) {
-          try {
-            const res3 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(poblacion + ', Extremadura, España')}&limit=1`);
-            const data3 = await res3.json();
-            if (data3 && data3.length > 0) {
-              baseCenter = [parseFloat(data3[0].lat), parseFloat(data3[0].lon)];
-            }
-          } catch (e) {}
-        }
-
         if (!baseCenter) baseCenter = [40.029, -6.088];
 
-        const jitterLat = (pseudoRandom(gescalKey + 'jlat') - 0.5) * 0.008;
-        const jitterLon = (pseudoRandom(gescalKey + 'jlon') - 0.5) * 0.008;
-        finalCoords = { lat: baseCenter[0] + jitterLat, lon: baseCenter[1] + jitterLon };
+        const { latOffset, lonOffset } = getOrganicOffset(gescalKey);
+        finalCoords = { 
+          lat: baseCenter[0] + latOffset, 
+          lon: baseCenter[1] + lonOffset 
+        };
       }
 
       if (finalCoords && checkIsMounted()) {
@@ -281,7 +283,7 @@ export default function MapView({
         setUnmappedCount(c => Math.max(0, c - 1));
       }
 
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 350));
     }
   };
 
