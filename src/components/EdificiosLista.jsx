@@ -12,6 +12,7 @@ import {
   X,
   RotateCcw
 } from 'lucide-react';
+import { resolvePoblacion } from './MapView';
 
 const ITEMS_PER_PAGE = 35;
 
@@ -60,20 +61,14 @@ export default function EdificiosLista({
     setSearchTerm(globalSearch);
   }, [globalSearch]);
 
-  // Lista normalizada de poblaciones
+  // Lista única normalizada usando el detector universal
   const poblaciones = useMemo(() => {
-    const pobsMap = new Map();
+    const pobsSet = new Set();
     edificios.forEach(e => {
-      if (e.POBLACION) {
-        const raw = String(e.POBLACION).trim();
-        const norm = normalizeText(raw);
-        if (norm && !pobsMap.has(norm)) {
-          const pretty = raw.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
-          pobsMap.set(norm, pretty);
-        }
-      }
+      const pob = resolvePoblacion(e);
+      if (pob) pobsSet.add(pob);
     });
-    return Array.from(pobsMap.entries()).map(([norm, pretty]) => ({ norm, pretty })).sort((a,b) => a.pretty.localeCompare(b.pretty));
+    return Array.from(pobsSet).sort();
   }, [edificios]);
 
   const handlePoblacionChange = (val) => {
@@ -146,7 +141,7 @@ export default function EdificiosLista({
     return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
   }
 
-  // Filtrado y ordenación con normalización inteligente
+  // Filtrado universal
   const filteredEdificios = useMemo(() => {
     let result = [...edificios];
 
@@ -155,7 +150,7 @@ export default function EdificiosLista({
       const q = normalizeText(searchTerm);
       result = result.filter(e => {
         const address = normalizeText(`${e['TIPO-VIA'] || ''} ${e['NOMBRE-VIA'] || ''} ${e['NUM'] || ''}`);
-        const poblacion = normalizeText(e.POBLACION || '');
+        const poblacion = normalizeText(resolvePoblacion(e));
         const uuis = String(e['TOTALES '] || e['TOTALES'] || e['TOTALES (UUIs)'] || '');
         const state = normalizeText(e['ESTADO IC'] || '');
         const gescal = normalizeText(e.GESCAL26 || '');
@@ -179,11 +174,11 @@ export default function EdificiosLista({
       });
     }
 
-    // 3. Filtro de Población NORMALIZADO
+    // 3. Filtro de Población Universal Detector
     if (selectedPoblacion !== 'todos') {
       const targetNorm = normalizeText(selectedPoblacion);
       result = result.filter(e => {
-        const pobNorm = normalizeText(e.POBLACION);
+        const pobNorm = normalizeText(resolvePoblacion(e));
         return pobNorm.includes(targetNorm) || targetNorm.includes(pobNorm);
       });
     }
@@ -212,8 +207,8 @@ export default function EdificiosLista({
         const uB = parseInt(b['TOTALES '] ?? b['TOTALES'] ?? b['TOTALES (UUIs)'] ?? 0, 10) || 0;
         comparison = uA - uB;
       } else if (sortBy === 'poblacion') {
-        const pA = (a.POBLACION || '').toLowerCase();
-        const pB = (b.POBLACION || '').toLowerCase();
+        const pA = resolvePoblacion(a).toLowerCase();
+        const pB = resolvePoblacion(b).toLowerCase();
         comparison = pA.localeCompare(pB);
       } else if (sortBy === 'proxima-visita') {
         const pA = parseDateTimestamp(a['PROXIMA-VISITA']);
@@ -273,9 +268,8 @@ export default function EdificiosLista({
           )}
         </div>
 
-        {/* Filter Badges Row con Normalización */}
+        {/* Filter Badges Row */}
         <div className="flex space-x-2 overflow-x-auto pb-1 -mx-2 px-2 scrollbar-none">
-          {/* Población (Normalizada) */}
           <div className="relative shrink-0">
             <select
               value={selectedPoblacion}
@@ -285,14 +279,13 @@ export default function EdificiosLista({
               }`}
             >
               <option value="todos" className="bg-white text-slate-700">Población: Todas</option>
-              {poblaciones.map((p) => (
-                <option key={p.norm} value={p.norm} className="bg-white text-slate-700">{p.pretty}</option>
+              {poblaciones.map((p, idx) => (
+                <option key={idx} value={p} className="bg-white text-slate-700">{p}</option>
               ))}
             </select>
             <Filter size={11} className={`absolute right-2.5 top-2.5 pointer-events-none ${selectedPoblacion !== 'todos' ? 'text-white' : 'text-slate-400'}`} />
           </div>
 
-          {/* Estado */}
           <div className="relative shrink-0">
             <select
               value={selectedEstado}
@@ -309,7 +302,6 @@ export default function EdificiosLista({
             <Filter size={11} className={`absolute right-2.5 top-2.5 pointer-events-none ${selectedEstado !== 'todos' ? 'text-white' : 'text-slate-400'}`} />
           </div>
 
-          {/* UUIs */}
           <div className="relative shrink-0">
             <select
               value={selectedUuisRange}
@@ -410,7 +402,7 @@ export default function EdificiosLista({
                   <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
                     <span className="flex items-center shrink-0">
                       <MapPin size={12} className="mr-1 text-slate-400" />
-                      {e.POBLACION}
+                      {resolvePoblacion(e)}
                     </span>
                     <span className="flex items-center shrink-0">
                       <Layers size={12} className="mr-1 text-slate-400" />

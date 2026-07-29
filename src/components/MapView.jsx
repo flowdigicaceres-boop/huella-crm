@@ -35,7 +35,41 @@ const TOWN_COORDS = {
   'miajadas': [39.152, -5.908]
 };
 
-// Normalizador insensible a mayúsculas, tildes y espacios
+// DETECTOR UNIVERSAL DE MUNICIPIO (POBLACION, LOCALIDAD, MUNICIPIO Y CODIGO POSTAL 10600)
+export function resolvePoblacion(e) {
+  if (!e) return 'Plasencia';
+
+  // 1. Comprobar todas las columnas posibles de ubicación
+  const raw = e['POBLACION'] ?? e['Población'] ?? e['Poblacion'] ?? e['MUNICIPIO'] ?? e['LOCALIDAD'] ?? e['CIUDAD'] ?? e['POBLACIÓN'] ?? '';
+  const str = String(raw).trim();
+
+  if (str) {
+    if (/plasencia/i.test(str)) return 'Plasencia';
+    if (/caceres|cáceres/i.test(str)) return 'Cáceres';
+    if (/navalmoral/i.test(str)) return 'Navalmoral de la Mata';
+    if (/trujillo/i.test(str)) return 'Trujillo';
+    if (/coria/i.test(str)) return 'Coria';
+    if (/badajoz/i.test(str)) return 'Badajoz';
+    if (/merida|mérida/i.test(str)) return 'Mérida';
+    if (/miajadas/i.test(str)) return 'Miajadas';
+    return str.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
+  }
+
+  // 2. Detección por Código GESCAL / Postal (Plasencia = 10600)
+  const gescal = String(e.GESCAL26 || e.GESCAL || '').replace(/\D/g, '');
+  if (gescal.includes('10600') || gescal.includes('10601') || gescal.includes('10602') || gescal.startsWith('106')) {
+    return 'Plasencia';
+  }
+  if (gescal.includes('10001') || gescal.includes('10002') || gescal.startsWith('100')) {
+    return 'Cáceres';
+  }
+  if (gescal.includes('10500') || gescal.startsWith('105')) {
+    return 'Navalmoral de la Mata';
+  }
+
+  return 'Plasencia';
+}
+
 function normalizeText(str) {
   if (!str) return '';
   return String(str)
@@ -123,21 +157,14 @@ export default function MapView({
     return localStorage.getItem('huella_filter_poblacion') || 'todos';
   });
 
-  // Lista normalizada de poblaciones para el desplegable (combina PLASENCIA, Plasencia, etc.)
+  // Lista normalizada universal de poblaciones
   const poblaciones = useMemo(() => {
-    const pobsMap = new Map();
+    const pobsSet = new Set();
     edificios.forEach(e => {
-      if (e.POBLACION) {
-        const raw = String(e.POBLACION).trim();
-        const norm = normalizeText(raw);
-        if (norm && !pobsMap.has(norm)) {
-          // Formato visual bonito (Plasencia)
-          const pretty = raw.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
-          pobsMap.set(norm, pretty);
-        }
-      }
+      const pob = resolvePoblacion(e);
+      if (pob) pobsSet.add(pob);
     });
-    return Array.from(pobsMap.entries()).map(([norm, pretty]) => ({ norm, pretty })).sort((a,b) => a.pretty.localeCompare(b.pretty));
+    return Array.from(pobsSet).sort();
   }, [edificios]);
 
   // Rastreo GPS en tiempo real
@@ -158,7 +185,6 @@ export default function MapView({
     };
   }, []);
 
-  // Carga e inicialización de geocodificación
   useEffect(() => {
     let isMounted = true;
 
@@ -199,13 +225,13 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // Geocodificador continuo
+  // Geocodificador continuo con resolución universal de municipio
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     for (let i = 0; i < list.length; i++) {
       if (!checkIsMounted()) break;
       const b = list[i];
       const gescalKey = String(b.GESCAL26 || i);
-      const poblacion = String(b.POBLACION || '').trim();
+      const poblacion = resolvePoblacion(b);
       const pobNorm = normalizeText(poblacion);
 
       const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
@@ -250,7 +276,7 @@ export default function MapView({
           } catch (e) {}
         }
 
-        if (!baseCenter) baseCenter = [40.029, -6.088];
+        if (!baseCenter) baseCenter = [40.029, -6.088]; // Plasencia por defecto
 
         const jitterLat = (pseudoRandom(gescalKey + 'jlat') - 0.5) * 0.008;
         const jitterLon = (pseudoRandom(gescalKey + 'jlon') - 0.5) * 0.008;
@@ -267,13 +293,13 @@ export default function MapView({
     }
   };
 
-  // FILTRADO NORMALIZADO: Agrupa PLASENCIA, Plasencia, Plasencia , etc.
+  // FILTRADO CON DETECTOR UNIVERSAL
   const edificiosVisibles = useMemo(() => {
     if (poblacionFiltro === 'todos') return geocodedEdificios;
     const targetNorm = normalizeText(poblacionFiltro);
     
     return geocodedEdificios.filter(e => {
-      const pobNorm = normalizeText(e.POBLACION);
+      const pobNorm = normalizeText(resolvePoblacion(e));
       return pobNorm.includes(targetNorm) || targetNorm.includes(pobNorm);
     });
   }, [geocodedEdificios, poblacionFiltro]);
@@ -319,7 +345,8 @@ export default function MapView({
     const tipo = String(e['TIPO-VIA'] || '').trim();
     const nombre = String(e['NOMBRE-VIA'] || '').trim();
     const num = String(e['NUM'] || '').trim();
-    const address = `${tipo} ${nombre} ${num}, ${e.POBLACION || ''}, España`;
+    const pob = resolvePoblacion(e);
+    const address = `${tipo} ${nombre} ${num}, ${pob}, España`;
     
     if (e.coords) {
       return `https://www.google.com/maps/dir/?api=1&destination=${e.coords.lat},${e.coords.lon}`;
@@ -346,8 +373,8 @@ export default function MapView({
             className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-800 text-[11px] px-2 py-1 pr-6 rounded-xl font-bold focus:border-blue-500 cursor-pointer truncate"
           >
             <option value="todos">Todas las poblaciones</option>
-            {poblaciones.map((p) => (
-              <option key={p.norm} value={p.norm}>{p.pretty}</option>
+            {poblaciones.map((p, idx) => (
+              <option key={idx} value={p}>{p}</option>
             ))}
           </select>
           <Filter size={10} className="absolute right-2 top-2 text-slate-400 pointer-events-none" />
@@ -421,7 +448,7 @@ export default function MapView({
                       {`${e['TIPO-VIA'] || ''} ${e['NOMBRE-VIA'] || ''} ${e['NUM'] || ''}`.trim()}
                     </h4>
                     <span className="block text-[10px] text-slate-500">
-                      {e.POBLACION} &bull; {e['TOTALES '] || e['TOTALES'] || e['TOTALES (UUIs)'] || 0} UUIs
+                      {resolvePoblacion(e)} &bull; {e['TOTALES '] || e['TOTALES'] || e['TOTALES (UUIs)'] || 0} UUIs
                     </span>
                   </div>
 
