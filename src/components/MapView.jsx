@@ -71,7 +71,7 @@ function normalizeText(str) {
     .replace(/\s+/g, ' ');
 }
 
-// BÚSQUEDA DIRECTA EN CALLES REALES (SIN BLOQUEOS Y SIN CÍRCULOS)
+// BÚSQUEDA DIRECTA EN CALLES REALES
 async function geocodeOnRealStreet(b) {
   const poblacion = resolvePoblacion(b);
   const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
@@ -80,7 +80,7 @@ async function geocodeOnRealStreet(b) {
 
   if (!nombre) return null;
 
-  // Intento 1: Tipo + Nombre + Número + Población
+  // 1. Intento Calle + Número + Población
   try {
     const q1 = `${tipo} ${nombre} ${num}, ${poblacion}, España`;
     const res1 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q1)}&limit=1`);
@@ -90,7 +90,7 @@ async function geocodeOnRealStreet(b) {
     }
   } catch (e) {}
 
-  // Intento 2: Nombre + Número + Población
+  // 2. Intento Nombre + Número + Población
   try {
     const q2 = `${nombre} ${num}, ${poblacion}, España`;
     const res2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q2)}&limit=1`);
@@ -100,7 +100,7 @@ async function geocodeOnRealStreet(b) {
     }
   } catch (e) {}
 
-  // Intento 3: Nombre de la Calle + Población (Ubicación en Calle Real)
+  // 3. Intento Calle Real en Municipio
   try {
     const q3 = `${nombre}, ${poblacion}, España`;
     const res3 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q3)}&limit=1`);
@@ -193,6 +193,18 @@ export default function MapView({
     return Array.from(pobsSet).sort();
   }, [edificios]);
 
+  // VUELO INSTANTÁNEO DE CÁMARA AL CAMBIAR DE MUNICIPIO
+  useEffect(() => {
+    if (poblacionFiltro !== 'todos') {
+      const pobNorm = normalizeText(poblacionFiltro);
+      const coords = TOWN_COORDS[pobNorm];
+      if (coords) {
+        setMapCenter(coords);
+        setMapZoom(14);
+      }
+    }
+  }, [poblacionFiltro]);
+
   // Rastreo GPS
   useEffect(() => {
     let watchId;
@@ -218,10 +230,9 @@ export default function MapView({
       try {
         setLoadingGeocodes(true);
 
-        // PURGA DEFINITIVA DE CÍRCULOS
-        if (!localStorage.getItem('huella_purge_no_circles_v8')) {
+        if (!localStorage.getItem('huella_purge_no_circles_v9')) {
           await db.clearGeocodesCache();
-          localStorage.setItem('huella_purge_no_circles_v8', 'true');
+          localStorage.setItem('huella_purge_no_circles_v9', 'true');
         }
 
         const cached = await db.getTodosGeocodes();
@@ -258,10 +269,20 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
+  // PRIORIZACIÓN: Mapea primero los edificios de la ciudad seleccionada en el desplegable
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
-    for (let i = 0; i < list.length; i++) {
+    const targetNorm = normalizeText(poblacionFiltro);
+    
+    // Ordena para procesar primero los edificios de la población activa
+    const sortedList = [...list].sort((a, b) => {
+      const isA = normalizeText(resolvePoblacion(a)).includes(targetNorm);
+      const isB = normalizeText(resolvePoblacion(b)).includes(targetNorm);
+      return isB - isA;
+    });
+
+    for (let i = 0; i < sortedList.length; i++) {
       if (!checkIsMounted()) break;
-      const b = list[i];
+      const b = sortedList[i];
       const gescalKey = String(b.GESCAL26 || i);
 
       const finalCoords = await geocodeOnRealStreet(b);
@@ -272,7 +293,8 @@ export default function MapView({
         setUnmappedCount(c => Math.max(0, c - 1));
       }
 
-      await new Promise(r => setTimeout(r, 350));
+      // Pausa respetuosa de 1.2s para cumplir las normas oficiales de mapas sin bloqueos
+      await new Promise(r => setTimeout(r, 1200));
     }
   };
 
@@ -285,28 +307,6 @@ export default function MapView({
       return pobNorm.includes(targetNorm) || targetNorm.includes(pobNorm);
     });
   }, [geocodedEdificios, poblacionFiltro]);
-
-  // Centrado dinámico
-  useEffect(() => {
-    if (edificiosVisibles.length > 0) {
-      let sumLat = 0;
-      let sumLon = 0;
-      let validCount = 0;
-
-      edificiosVisibles.forEach(b => {
-        if (b.coords && b.coords.lat && b.coords.lon) {
-          sumLat += parseFloat(b.coords.lat);
-          sumLon += parseFloat(b.coords.lon);
-          validCount++;
-        }
-      });
-
-      if (validCount > 0) {
-        setMapCenter([sumLat / validCount, sumLon / validCount]);
-        setMapZoom(14);
-      }
-    }
-  }, [edificiosVisibles.length, poblacionFiltro]);
 
   const handleCenterUserGPS = () => {
     if (userLocation) {
