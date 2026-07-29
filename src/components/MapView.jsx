@@ -99,7 +99,6 @@ async function geocodeFastRealStreet(b) {
 
   const fullAddress = `${tipo} ${nombre} ${num}, ${poblacion}, España`.replace(/\s+/g, ' ').trim();
 
-  // 1. Esri ArcGIS World Geocoding
   try {
     const urlArcGIS = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(fullAddress)}&maxLocations=1`;
     const resArc = await fetch(urlArcGIS);
@@ -110,7 +109,6 @@ async function geocodeFastRealStreet(b) {
     }
   } catch (e) {}
 
-  // 2. Photon Komoot API
   try {
     const urlPhoton = `https://photon.komoot.io/api/?q=${encodeURIComponent(fullAddress)}&limit=1`;
     const resPho = await fetch(urlPhoton);
@@ -121,7 +119,6 @@ async function geocodeFastRealStreet(b) {
     }
   } catch (e) {}
 
-  // 3. Calle con Esri ArcGIS
   try {
     const streetOnly = `${nombre}, ${poblacion}, España`;
     const urlStreet = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(streetOnly)}&maxLocations=1`;
@@ -137,11 +134,17 @@ async function geocodeFastRealStreet(b) {
   return null;
 }
 
+// CHINCHETA DINÁMICA DE COLORES SEGÚN EL ESTADO DEL EDIFICIO
 const getMarkerIcon = (status) => {
-  const st = (status || '').toLowerCase();
-  let color = 'bg-amber-500';
-  if (st.includes('concedido')) color = 'bg-emerald-500';
-  if (st.includes('denegado')) color = 'bg-rose-500';
+  const st = (status || '').toLowerCase().trim();
+  
+  let color = 'bg-amber-500'; // AMARILLO (En Gestión / Por defecto)
+  
+  if (st.includes('concedido') || st.includes('firmado') || st.includes('ok')) {
+    color = 'bg-emerald-500'; // VERDE (Concedido)
+  } else if (st.includes('denegado') || st.includes('rechazado') || st.includes('cancelado')) {
+    color = 'bg-rose-500'; // ROJO (Denegado)
+  }
 
   return L.divIcon({
     className: 'custom-div-icon bg-transparent border-none',
@@ -275,7 +278,6 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // BÚSQUEDA CONTINUA CON PRIORIDAD EN CIUDAD SELECCIONADA
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     const targetNorm = normalizeText(poblacionFiltro);
     
@@ -305,7 +307,7 @@ export default function MapView({
     }
   };
 
-  // GARANTÍA INSTANTÁNEA: Muestra el 100% de edificios de la población seleccionada al instante sin dejar ninguno fuera
+  // COMBINACIÓN EN TIEMPO REAL: Mezcla las coordenadas con el ESTADO IC más reciente del edificio
   const edificiosVisibles = useMemo(() => {
     let filtered = edificios;
     if (poblacionFiltro !== 'todos') {
@@ -320,17 +322,17 @@ export default function MapView({
       const gescalKey = String(b.GESCAL26 || idx);
       const cachedCoords = cachedGeocodesMap[gescalKey];
       
-      if (cachedCoords && cachedCoords.lat !== null && cachedCoords.lon !== null) {
-        return { ...b, coords: cachedCoords };
+      let coords = cachedCoords;
+      if (!coords || coords.lat === null || coords.lon === null) {
+        const pobNorm = normalizeText(resolvePoblacion(b));
+        const baseCenter = TOWN_COORDS[pobNorm] || [40.029, -6.088];
+        const { latOffset, lonOffset } = getOrganicOffset(gescalKey);
+        coords = { lat: baseCenter[0] + latOffset, lon: baseCenter[1] + lonOffset };
       }
 
-      // Fallback instantáneo en zona urbana si aún no ha sido confirmado por Esri
-      const pobNorm = normalizeText(resolvePoblacion(b));
-      const baseCenter = TOWN_COORDS[pobNorm] || [40.029, -6.088];
-      const { latOffset, lonOffset } = getOrganicOffset(gescalKey);
       return {
-        ...b,
-        coords: { lat: baseCenter[0] + latOffset, lon: baseCenter[1] + lonOffset }
+        ...b, // Garantiza que lee el estado actualizado en vivo (ESTADO IC)
+        coords
       };
     });
   }, [edificios, cachedGeocodesMap, poblacionFiltro]);
@@ -370,7 +372,7 @@ export default function MapView({
           <Building size={14} className="text-blue-500 shrink-0" />
           <span>{edificiosVisibles.length} en mapa</span>
           {unmappedCount > 0 && (
-            <Loader size={10} className="animate-spin text-blue-500 ml-1" title={`Precisiando ${unmappedCount} restantes...`} />
+            <Loader size={10} className="animate-spin text-blue-500 ml-1" title={`Precisando ${unmappedCount} restantes...`} />
           )}
         </div>
 
@@ -439,7 +441,7 @@ export default function MapView({
             </>
           )}
 
-          {/* MARCADORES DE LOS EDIFICIOS */}
+          {/* MARCADORES CON CAMBIO DE COLOR EN TIEMPO REAL */}
           {edificiosVisibles.map((e, idx) => (
             <Marker 
               key={String(e.GESCAL26) || idx} 
