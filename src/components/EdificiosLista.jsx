@@ -61,7 +61,6 @@ export default function EdificiosLista({
     setSearchTerm(globalSearch);
   }, [globalSearch]);
 
-  // Lista única normalizada usando el detector universal
   const poblaciones = useMemo(() => {
     const pobsSet = new Set();
     edificios.forEach(e => {
@@ -141,11 +140,9 @@ export default function EdificiosLista({
     return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
   }
 
-  // Filtrado universal
   const filteredEdificios = useMemo(() => {
     let result = [...edificios];
 
-    // 1. Filtro por Búsqueda de Texto
     if (searchTerm.trim()) {
       const q = normalizeText(searchTerm);
       result = result.filter(e => {
@@ -163,7 +160,6 @@ export default function EdificiosLista({
       });
     }
 
-    // 2. Filtro de Estado
     if (selectedEstado !== 'todos') {
       result = result.filter(e => {
         const st = (e['ESTADO IC'] || '').toLowerCase();
@@ -174,7 +170,6 @@ export default function EdificiosLista({
       });
     }
 
-    // 3. Filtro de Población Universal Detector
     if (selectedPoblacion !== 'todos') {
       const targetNorm = normalizeText(selectedPoblacion);
       result = result.filter(e => {
@@ -183,7 +178,6 @@ export default function EdificiosLista({
       });
     }
 
-    // 4. Filtro de Rango de UUIs
     if (selectedUuisRange !== 'todos') {
       result = result.filter(e => {
         const rawUuis = e['TOTALES '] ?? e['TOTALES'] ?? e['TOTALES (UUIs)'] ?? 0;
@@ -195,7 +189,6 @@ export default function EdificiosLista({
       });
     }
 
-    // 5. Ordenación
     result.sort((a, b) => {
       let comparison = 0;
       if (sortBy === 'direccion') {

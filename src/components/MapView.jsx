@@ -35,37 +35,31 @@ const TOWN_COORDS = {
   'miajadas': [39.152, -5.908]
 };
 
-// DETECTOR UNIVERSAL DE MUNICIPIO (POBLACION, LOCALIDAD, MUNICIPIO Y CODIGO POSTAL 10600)
+// DETECTOR PRECISO Basado en Columna A (POBLACION) y Columna F (ZONA-GPON)
 export function resolvePoblacion(e) {
   if (!e) return 'Plasencia';
 
-  // 1. Comprobar todas las columnas posibles de ubicación
-  const raw = e['POBLACION'] ?? e['Población'] ?? e['Poblacion'] ?? e['MUNICIPIO'] ?? e['LOCALIDAD'] ?? e['CIUDAD'] ?? e['POBLACIÓN'] ?? '';
-  const str = String(raw).trim();
+  // 1. Lectura directa de Columna A (POBLACION / Población)
+  const rawPob = e['POBLACION'] ?? e['Población'] ?? e['Poblacion'] ?? e['MUNICIPIO'] ?? e['LOCALIDAD'] ?? '';
+  const strPob = String(rawPob).trim();
 
-  if (str) {
-    if (/plasencia/i.test(str)) return 'Plasencia';
-    if (/caceres|cáceres/i.test(str)) return 'Cáceres';
-    if (/navalmoral/i.test(str)) return 'Navalmoral de la Mata';
-    if (/trujillo/i.test(str)) return 'Trujillo';
-    if (/coria/i.test(str)) return 'Coria';
-    if (/badajoz/i.test(str)) return 'Badajoz';
-    if (/merida|mérida/i.test(str)) return 'Mérida';
-    if (/miajadas/i.test(str)) return 'Miajadas';
-    return str.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
+  if (strPob) {
+    if (/plasencia/i.test(strPob)) return 'Plasencia';
+    if (/caceres|cáceres/i.test(strPob)) return 'Cáceres';
+    if (/navalmoral/i.test(strPob)) return 'Navalmoral de la Mata';
+    if (/trujillo/i.test(strPob)) return 'Trujillo';
+    if (/coria/i.test(strPob)) return 'Coria';
+    if (/badajoz/i.test(strPob)) return 'Badajoz';
+    if (/merida|mérida/i.test(strPob)) return 'Mérida';
+    if (/miajadas/i.test(strPob)) return 'Miajadas';
+    return strPob.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
   }
 
-  // 2. Detección por Código GESCAL / Postal (Plasencia = 10600)
-  const gescal = String(e.GESCAL26 || e.GESCAL || '').replace(/\D/g, '');
-  if (gescal.includes('10600') || gescal.includes('10601') || gescal.includes('10602') || gescal.startsWith('106')) {
-    return 'Plasencia';
-  }
-  if (gescal.includes('10001') || gescal.includes('10002') || gescal.startsWith('100')) {
-    return 'Cáceres';
-  }
-  if (gescal.includes('10500') || gescal.startsWith('105')) {
-    return 'Navalmoral de la Mata';
-  }
+  // 2. Lectura secundaria de Columna F (ZONA-GPON: PLASENCIAB11.2, PLASENCIAT2.1)
+  const gpon = String(e['ZONA-GPON'] || e['ZONA_GPON'] || e['ZONA'] || '').trim();
+  if (/plasencia/i.test(gpon)) return 'Plasencia';
+  if (/caceres|cáceres/i.test(gpon)) return 'Cáceres';
+  if (/navalmoral/i.test(gpon)) return 'Navalmoral de la Mata';
 
   return 'Plasencia';
 }
@@ -157,7 +151,6 @@ export default function MapView({
     return localStorage.getItem('huella_filter_poblacion') || 'todos';
   });
 
-  // Lista normalizada universal de poblaciones
   const poblaciones = useMemo(() => {
     const pobsSet = new Set();
     edificios.forEach(e => {
@@ -225,7 +218,6 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // Geocodificador continuo con resolución universal de municipio
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     for (let i = 0; i < list.length; i++) {
       if (!checkIsMounted()) break;
@@ -276,7 +268,7 @@ export default function MapView({
           } catch (e) {}
         }
 
-        if (!baseCenter) baseCenter = [40.029, -6.088]; // Plasencia por defecto
+        if (!baseCenter) baseCenter = [40.029, -6.088];
 
         const jitterLat = (pseudoRandom(gescalKey + 'jlat') - 0.5) * 0.008;
         const jitterLon = (pseudoRandom(gescalKey + 'jlon') - 0.5) * 0.008;
@@ -293,7 +285,6 @@ export default function MapView({
     }
   };
 
-  // FILTRADO CON DETECTOR UNIVERSAL
   const edificiosVisibles = useMemo(() => {
     if (poblacionFiltro === 'todos') return geocodedEdificios;
     const targetNorm = normalizeText(poblacionFiltro);
@@ -356,7 +347,6 @@ export default function MapView({
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] space-y-3 relative">
-      {/* Top Banner Map Stats & Population Filter */}
       <div className="flex items-center justify-between text-xs bg-white p-2.5 rounded-2xl border border-slate-100 shadow-sm gap-2">
         <div className="flex items-center space-x-1 font-semibold text-slate-700 shrink-0">
           <Building size={14} className="text-blue-500 shrink-0" />
