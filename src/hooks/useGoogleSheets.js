@@ -10,20 +10,18 @@ export function useGoogleSheets() {
   const [error, setError] = useState(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   
-  // Ref para evitar bucles de sincronización simultáneos
   const isSyncingVisitasRef = useRef(false);
 
-  // URL del script guardada en localStorage
+  // URL de Google Apps Script guardada en localStorage
   const [scriptUrl, setScriptUrl] = useState(() => localStorage.getItem('huella_crm_script_url') || '');
 
-  // Guardar URL de Apps Script
   const saveScriptUrl = (url) => {
     const trimmedUrl = String(url || '').trim();
     localStorage.setItem('huella_crm_script_url', trimmedUrl);
     setScriptUrl(trimmedUrl);
   };
 
-  // Cargar datos locales desde IndexedDB
+  // Cargar datos de la base de datos local IndexedDB
   const loadLocalData = useCallback(async () => {
     try {
       const localEdificios = await db.getEdificios();
@@ -37,21 +35,31 @@ export function useGoogleSheets() {
     }
   }, []);
 
-  // Enviar una visita individual a Google Apps Script
+  // Enviar visita a Google Apps Script especificando la pestaña de destino
   const sendVisitaToSheets = useCallback(async (visita) => {
     if (!scriptUrl) throw new Error('No Apps Script URL configured');
     
-    // Enviamos el comentario en todas las variantes de nombre posibles
+    // Payload ultra-completo con identificadores de pestaña para asegurar que el Script lo escriba bien
     const payload = {
+      action: 'addVisita',
+      type: 'visita',
+      tab: 'VISITAS',
+      hoja: 'VISITAS',
+      sheetName: 'VISITAS',
       gescal: visita.GESCAL,
+      GESCAL: visita.GESCAL,
       resultado: visita.Resultado,
+      Resultado: visita.Resultado,
       comentario: visita.Comentario || '',
       Comentario: visita.Comentario || '',
       COMENTARIO: visita.Comentario || '',
       comentarios: visita.Comentario || '',
-      proximaVisita: visita['Próxima visita'],
+      proximaVisita: visita['Próxima visita'] || '',
+      'Próxima visita': visita['Próxima visita'] || '',
       fecha: visita.Fecha,
-      hora: visita.Hora
+      Fecha: visita.Fecha,
+      hora: visita.Hora,
+      Hora: visita.Hora
     };
 
     await fetch(scriptUrl, {
@@ -66,7 +74,7 @@ export function useGoogleSheets() {
     return true;
   }, [scriptUrl]);
 
-  // Sincronizar todas las visitas pendientes
+  // Sincronizar visitas pendientes de envío
   const syncPendingVisitas = useCallback(async () => {
     if (!navigator.onLine || !scriptUrl || isSyncingVisitasRef.current) return;
     
@@ -111,7 +119,7 @@ export function useGoogleSheets() {
     }
   }, [scriptUrl, sendVisitaToSheets, loadLocalData]);
 
-  // Obtener datos desde Google Sheets
+  // Obtener todos los datos de Google Sheets
   const fetchData = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
@@ -171,12 +179,12 @@ export function useGoogleSheets() {
     };
     
     try {
-      // 1. Guardar localmente en IndexedDB
+      // Guardar en base de datos local
       const savedVisitaObj = await db.addVisita(nuevaVisita);
       await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioLimpio);
       await loadLocalData();
       
-      // 2. Intentar enviar a Google Sheets inmediatamente
+      // Enviar a Google Sheets
       if (navigator.onLine && scriptUrl) {
         try {
           await sendVisitaToSheets(savedVisitaObj);
@@ -195,7 +203,7 @@ export function useGoogleSheets() {
           
           await loadLocalData();
         } catch (e) {
-          console.warn('Sincronización inmediata fallida, se reintentará online:', e);
+          console.warn('Sincronización inmediata fallida, se enviará automáticamente online:', e);
         }
       }
       
@@ -206,7 +214,6 @@ export function useGoogleSheets() {
     }
   };
 
-  // Detectar cambios de red
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -223,7 +230,6 @@ export function useGoogleSheets() {
     };
   }, [syncPendingVisitas]);
 
-  // Cargar al montar
   useEffect(() => {
     fetchData();
   }, [fetchData]);

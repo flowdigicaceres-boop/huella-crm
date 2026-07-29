@@ -27,18 +27,15 @@ export const initDB = () => {
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
       
-      // Store para edificios (clave: GESCAL26)
       if (!db.objectStoreNames.contains('edificios')) {
         db.createObjectStore('edificios', { keyPath: 'GESCAL26' });
       }
       
-      // Store para visitas (clave: entero autoincremental)
       if (!db.objectStoreNames.contains('visitas')) {
         const store = db.createObjectStore('visitas', { keyPath: 'id', autoIncrement: true });
         store.createIndex('gescal', 'GESCAL', { unique: false });
       }
       
-      // Store para geocodificación cacheada (clave: GESCAL26)
       if (!db.objectStoreNames.contains('geocodes')) {
         db.createObjectStore('geocodes', { keyPath: 'GESCAL26' });
       }
@@ -46,17 +43,53 @@ export const initDB = () => {
   });
 };
 
+// Extrae latitud y longitud si vienen pre-calculadas en las columnas de Google Sheets
+function extractCoordinatesFromBuilding(edificio) {
+  if (!edificio) return null;
+
+  let lat = null;
+  let lon = null;
+
+  // Buscar claves habituales
+  const latVal = edificio['LATITUD'] || edificio['LAT'] || edificio['Latitud'] || edificio['lat'] || edificio['LATITUD_GPS'];
+  const lonVal = edificio['LONGITUD'] || edificio['LON'] || edificio['Longitud'] || edificio['lon'] || edificio['LONGITUD_GPS'];
+
+  if (latVal && lonVal) {
+    const parsedLat = parseFloat(String(latVal).replace(',', '.'));
+    const parsedLon = parseFloat(String(lonVal).replace(',', '.'));
+    if (!isNaN(parsedLat) && !isNaN(parsedLon)) {
+      lat = parsedLat;
+      lon = parsedLon;
+    }
+  } else {
+    // Si viene en formato único tipo "40.029, -6.088" en una columna COORDENADAS o GPS
+    const combined = edificio['COORDENADAS'] || edificio['Coordenadas'] || edificio['GPS'] || edificio['UBICACION'];
+    if (combined && String(combined).includes(',')) {
+      const parts = String(combined).split(',');
+      const parsedLat = parseFloat(parts[0].trim().replace(',', '.'));
+      const parsedLon = parseFloat(parts[1].trim().replace(',', '.'));
+      if (!isNaN(parsedLat) && !isNaN(parsedLon)) {
+        lat = parsedLat;
+        lon = parsedLon;
+      }
+    }
+  }
+
+  return (lat !== null && lon !== null) ? { lat, lon } : null;
+}
+
 export const db = {
   // ----------------------------------------------------
-  // BUILDINGS METHODS
+  // BUILDINGS METHODS (CARGA ULTRA RÁPIDA DE +700 EDIFICIOS)
   // ----------------------------------------------------
   async saveEdificios(edificios) {
     const db = await initDB();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('edificios', 'readwrite');
-      const store = tx.objectStore('edificios');
+      const tx = db.transaction(['edificios', 'geocodes'], 'readwrite');
+      const storeEdificios = tx.objectStore('edificios');
+      const storeGeocodes = tx.objectStore('geocodes');
       
-      store.clear();
+      storeEdificios.clear();
       
       if (!edificios || edificios.length === 0) {
         resolve();
@@ -65,7 +98,14 @@ export const db = {
 
       edificios.forEach((edificio) => {
         if (edificio && edificio.GESCAL26) {
-          store.put(edificio);
+          const gescalKey = String(edificio.GESCAL26);
+          storeEdificios.put(edificio);
+
+          // Si el Excel/Sheet trae coordenadas fijas, guardarlas de inmediato en caché
+          const coords = extractCoordinatesFromBuilding(edificio);
+          if (coords) {
+            storeGeocodes.put({ GESCAL26: gescalKey, lat: coords.lat, lon: coords.lon });
+          }
         }
       });
 
@@ -117,7 +157,6 @@ export const db = {
   async saveVisitas(visitasNuevas = []) {
     const db = await initDB();
     
-    // Prevenir pérdida de visitas pendientes de sincronización
     const visitasActuales = await this.getVisitas();
     const pendientesSincronizar = visitasActuales.filter(v => v.sincronizado === false);
 
