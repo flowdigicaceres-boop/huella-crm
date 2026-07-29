@@ -21,7 +21,6 @@ import { db } from '../services/db';
 
 import 'leaflet/dist/leaflet.css';
 
-// Coordenadas base conocidas de municipios para fallback 100% garantizado
 const TOWN_COORDS = {
   'plasencia': [40.029, -6.088],
   'caceres': [39.475, -6.372],
@@ -36,7 +35,17 @@ const TOWN_COORDS = {
   'miajadas': [39.152, -5.908]
 };
 
-// Generador pseudo-aleatorio determinista para dispersión de pines por GESCAL
+// Normalizador insensible a mayúsculas, tildes y espacios
+function normalizeText(str) {
+  if (!str) return '';
+  return String(str)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, ' ');
+}
+
 function pseudoRandom(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -114,12 +123,21 @@ export default function MapView({
     return localStorage.getItem('huella_filter_poblacion') || 'todos';
   });
 
+  // Lista normalizada de poblaciones para el desplegable (combina PLASENCIA, Plasencia, etc.)
   const poblaciones = useMemo(() => {
-    const pobs = new Set();
+    const pobsMap = new Map();
     edificios.forEach(e => {
-      if (e.POBLACION) pobs.add(String(e.POBLACION).trim());
+      if (e.POBLACION) {
+        const raw = String(e.POBLACION).trim();
+        const norm = normalizeText(raw);
+        if (norm && !pobsMap.has(norm)) {
+          // Formato visual bonito (Plasencia)
+          const pretty = raw.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
+          pobsMap.set(norm, pretty);
+        }
+      }
     });
-    return Array.from(pobs).sort();
+    return Array.from(pobsMap.entries()).map(([norm, pretty]) => ({ norm, pretty })).sort((a,b) => a.pretty.localeCompare(b.pretty));
   }, [edificios]);
 
   // Rastreo GPS en tiempo real
@@ -167,7 +185,6 @@ export default function MapView({
           setLoadingGeocodes(false);
         }
 
-        // BÚSQUEDA CONTINUA CON GARANTÍA 100% DE ASIGNACIÓN
         if (unmapped.length > 0) {
           geocodeAllUnmappedContinuously(unmapped, () => isMounted);
         }
@@ -182,14 +199,14 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // Algoritmo de 3 niveles con garantía de asignación del 100%
+  // Geocodificador continuo
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     for (let i = 0; i < list.length; i++) {
       if (!checkIsMounted()) break;
       const b = list[i];
       const gescalKey = String(b.GESCAL26 || i);
       const poblacion = String(b.POBLACION || '').trim();
-      const pobLower = poblacion.toLowerCase();
+      const pobNorm = normalizeText(poblacion);
 
       const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
       const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();
@@ -197,7 +214,6 @@ export default function MapView({
 
       let finalCoords = null;
 
-      // Intento 1: Calle + Número + Población
       if (nombre) {
         try {
           const q1 = `${tipo} ${nombre} ${num}, ${poblacion}, Extremadura, España`.replace(/\s+/g, ' ');
@@ -208,7 +224,6 @@ export default function MapView({
           }
         } catch (e) {}
 
-        // Intento 2: Solo Calle + Población
         if (!finalCoords) {
           try {
             const q2 = `${nombre}, ${poblacion}, Extremadura, España`.replace(/\s+/g, ' ');
@@ -223,9 +238,8 @@ export default function MapView({
         }
       }
 
-      // Intento 3: Fallback de Municipio con dispersión (100% Garantía)
       if (!finalCoords) {
-        let baseCenter = TOWN_COORDS[pobLower];
+        let baseCenter = TOWN_COORDS[pobNorm];
         if (!baseCenter) {
           try {
             const res3 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(poblacion + ', Extremadura, España')}&limit=1`);
@@ -236,7 +250,7 @@ export default function MapView({
           } catch (e) {}
         }
 
-        if (!baseCenter) baseCenter = [40.029, -6.088]; // Plasencia por defecto
+        if (!baseCenter) baseCenter = [40.029, -6.088];
 
         const jitterLat = (pseudoRandom(gescalKey + 'jlat') - 0.5) * 0.008;
         const jitterLon = (pseudoRandom(gescalKey + 'jlon') - 0.5) * 0.008;
@@ -253,9 +267,15 @@ export default function MapView({
     }
   };
 
+  // FILTRADO NORMALIZADO: Agrupa PLASENCIA, Plasencia, Plasencia , etc.
   const edificiosVisibles = useMemo(() => {
     if (poblacionFiltro === 'todos') return geocodedEdificios;
-    return geocodedEdificios.filter(e => String(e.POBLACION || '').trim() === poblacionFiltro);
+    const targetNorm = normalizeText(poblacionFiltro);
+    
+    return geocodedEdificios.filter(e => {
+      const pobNorm = normalizeText(e.POBLACION);
+      return pobNorm.includes(targetNorm) || targetNorm.includes(pobNorm);
+    });
   }, [geocodedEdificios, poblacionFiltro]);
 
   // Centrado dinámico
@@ -326,8 +346,8 @@ export default function MapView({
             className="w-full appearance-none bg-slate-50 border border-slate-200 text-slate-800 text-[11px] px-2 py-1 pr-6 rounded-xl font-bold focus:border-blue-500 cursor-pointer truncate"
           >
             <option value="todos">Todas las poblaciones</option>
-            {poblaciones.map((p, idx) => (
-              <option key={idx} value={p}>{p}</option>
+            {poblaciones.map((p) => (
+              <option key={p.norm} value={p.norm}>{p.pretty}</option>
             ))}
           </select>
           <Filter size={10} className="absolute right-2 top-2 text-slate-400 pointer-events-none" />

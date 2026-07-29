@@ -15,6 +15,16 @@ import {
 
 const ITEMS_PER_PAGE = 35;
 
+function normalizeText(str) {
+  if (!str) return '';
+  return String(str)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, ' ');
+}
+
 export default function EdificiosLista({ 
   edificios = [], 
   setSelectedBuildingGescal, 
@@ -24,7 +34,6 @@ export default function EdificiosLista({
 }) {
   const [searchTerm, setSearchTerm] = useState(globalSearch);
   
-  // RECUPERAR FILTROS DESDE LOCALSTORAGE PARA MEMORIA PERMANENTE
   const [selectedEstado, setSelectedEstado] = useState(() => {
     return localStorage.getItem('huella_filter_estado') || 'todos';
   });
@@ -47,21 +56,26 @@ export default function EdificiosLista({
 
   const [page, setPage] = useState(1);
 
-  // Sincronizar búsqueda global si cambia desde fuera
   useEffect(() => {
     setSearchTerm(globalSearch);
   }, [globalSearch]);
 
-  // Lista única de poblaciones
+  // Lista normalizada de poblaciones
   const poblaciones = useMemo(() => {
-    const pobs = new Set();
+    const pobsMap = new Map();
     edificios.forEach(e => {
-      if (e.POBLACION) pobs.add(String(e.POBLACION).trim());
+      if (e.POBLACION) {
+        const raw = String(e.POBLACION).trim();
+        const norm = normalizeText(raw);
+        if (norm && !pobsMap.has(norm)) {
+          const pretty = raw.toLowerCase().replace(/(^|\s)\S/g, l => l.toUpperCase());
+          pobsMap.set(norm, pretty);
+        }
+      }
     });
-    return Array.from(pobs).sort();
+    return Array.from(pobsMap.entries()).map(([norm, pretty]) => ({ norm, pretty })).sort((a,b) => a.pretty.localeCompare(b.pretty));
   }, [edificios]);
 
-  // Manejadores con guardado automático en localStorage
   const handlePoblacionChange = (val) => {
     setSelectedPoblacion(val);
     localStorage.setItem('huella_filter_poblacion', val);
@@ -93,7 +107,6 @@ export default function EdificiosLista({
     setPage(1);
   };
 
-  // Restablecer absolutamente todos los filtros
   const handleResetAllFilters = () => {
     setSearchTerm('');
     setGlobalSearch('');
@@ -133,19 +146,19 @@ export default function EdificiosLista({
     return isNaN(d.getTime()) ? 9999999999999 : d.getTime();
   }
 
-  // Filtrado y ordenación
+  // Filtrado y ordenación con normalización inteligente
   const filteredEdificios = useMemo(() => {
     let result = [...edificios];
 
     // 1. Filtro por Búsqueda de Texto
     if (searchTerm.trim()) {
-      const q = searchTerm.toLowerCase();
+      const q = normalizeText(searchTerm);
       result = result.filter(e => {
-        const address = `${e['TIPO-VIA'] || ''} ${e['NOMBRE-VIA'] || ''} ${e['NUM'] || ''}`.toLowerCase();
-        const poblacion = (e.POBLACION || '').toLowerCase();
+        const address = normalizeText(`${e['TIPO-VIA'] || ''} ${e['NOMBRE-VIA'] || ''} ${e['NUM'] || ''}`);
+        const poblacion = normalizeText(e.POBLACION || '');
         const uuis = String(e['TOTALES '] || e['TOTALES'] || e['TOTALES (UUIs)'] || '');
-        const state = (e['ESTADO IC'] || '').toLowerCase();
-        const gescal = String(e.GESCAL26 || '').toLowerCase();
+        const state = normalizeText(e['ESTADO IC'] || '');
+        const gescal = normalizeText(e.GESCAL26 || '');
         
         return address.includes(q) || 
                poblacion.includes(q) || 
@@ -166,9 +179,13 @@ export default function EdificiosLista({
       });
     }
 
-    // 3. Filtro de Población
+    // 3. Filtro de Población NORMALIZADO
     if (selectedPoblacion !== 'todos') {
-      result = result.filter(e => String(e.POBLACION || '').trim() === selectedPoblacion);
+      const targetNorm = normalizeText(selectedPoblacion);
+      result = result.filter(e => {
+        const pobNorm = normalizeText(e.POBLACION);
+        return pobNorm.includes(targetNorm) || targetNorm.includes(pobNorm);
+      });
     }
 
     // 4. Filtro de Rango de UUIs
@@ -256,9 +273,9 @@ export default function EdificiosLista({
           )}
         </div>
 
-        {/* Filter Badges Row con Persistencia */}
+        {/* Filter Badges Row con Normalización */}
         <div className="flex space-x-2 overflow-x-auto pb-1 -mx-2 px-2 scrollbar-none">
-          {/* Población (Plasencia, etc.) */}
+          {/* Población (Normalizada) */}
           <div className="relative shrink-0">
             <select
               value={selectedPoblacion}
@@ -268,8 +285,8 @@ export default function EdificiosLista({
               }`}
             >
               <option value="todos" className="bg-white text-slate-700">Población: Todas</option>
-              {poblaciones.map((p, idx) => (
-                <option key={idx} value={p} className="bg-white text-slate-700">{p}</option>
+              {poblaciones.map((p) => (
+                <option key={p.norm} value={p.norm} className="bg-white text-slate-700">{p.pretty}</option>
               ))}
             </select>
             <Filter size={11} className={`absolute right-2.5 top-2.5 pointer-events-none ${selectedPoblacion !== 'todos' ? 'text-white' : 'text-slate-400'}`} />
