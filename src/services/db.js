@@ -43,14 +43,12 @@ export const initDB = () => {
   });
 };
 
-// Extrae latitud y longitud si vienen pre-calculadas en las columnas de Google Sheets
 function extractCoordinatesFromBuilding(edificio) {
   if (!edificio) return null;
 
   let lat = null;
   let lon = null;
 
-  // Buscar claves habituales
   const latVal = edificio['LATITUD'] || edificio['LAT'] || edificio['Latitud'] || edificio['lat'] || edificio['LATITUD_GPS'];
   const lonVal = edificio['LONGITUD'] || edificio['LON'] || edificio['Longitud'] || edificio['lon'] || edificio['LONGITUD_GPS'];
 
@@ -62,7 +60,6 @@ function extractCoordinatesFromBuilding(edificio) {
       lon = parsedLon;
     }
   } else {
-    // Si viene en formato único tipo "40.029, -6.088" en una columna COORDENADAS o GPS
     const combined = edificio['COORDENADAS'] || edificio['Coordenadas'] || edificio['GPS'] || edificio['UBICACION'];
     if (combined && String(combined).includes(',')) {
       const parts = String(combined).split(',');
@@ -79,9 +76,6 @@ function extractCoordinatesFromBuilding(edificio) {
 }
 
 export const db = {
-  // ----------------------------------------------------
-  // BUILDINGS METHODS (CARGA ULTRA RÁPIDA DE +700 EDIFICIOS)
-  // ----------------------------------------------------
   async saveEdificios(edificios) {
     const db = await initDB();
     return new Promise((resolve, reject) => {
@@ -101,7 +95,6 @@ export const db = {
           const gescalKey = String(edificio.GESCAL26);
           storeEdificios.put(edificio);
 
-          // Si el Excel/Sheet trae coordenadas fijas, guardarlas de inmediato en caché
           const coords = extractCoordinatesFromBuilding(edificio);
           if (coords) {
             storeGeocodes.put({ GESCAL26: gescalKey, lat: coords.lat, lon: coords.lon });
@@ -151,9 +144,6 @@ export const db = {
     });
   },
 
-  // ----------------------------------------------------
-  // VISITS METHODS
-  // ----------------------------------------------------
   async saveVisitas(visitasNuevas = []) {
     const db = await initDB();
     
@@ -240,9 +230,6 @@ export const db = {
     });
   },
 
-  // ----------------------------------------------------
-  // GEOCODING CACHE METHODS
-  // ----------------------------------------------------
   async saveGeocode(gescal, lat, lon) {
     const db = await initDB();
     return new Promise((resolve, reject) => {
@@ -282,6 +269,17 @@ export const db = {
         resolve(cache);
       };
       request.onerror = () => reject(request.error);
+    });
+  },
+
+  // PURGADOR DE COORDENADAS ANTIGUAS EN LÍNEA
+  async clearGeocodesCache() {
+    const db = await initDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('geocodes', 'readwrite');
+      const store = tx.objectStore('geocodes');
+      store.clear();
+      tx.oncomplete = () => resolve();
     });
   }
 };

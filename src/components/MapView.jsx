@@ -35,7 +35,6 @@ const TOWN_COORDS = {
   'miajadas': [39.152, -5.908]
 };
 
-// Detector de Municipio
 export function resolvePoblacion(e) {
   if (!e) return 'Plasencia';
 
@@ -72,7 +71,6 @@ function normalizeText(str) {
     .replace(/\s+/g, ' ');
 }
 
-// Pseudo-aleatorio para dispersión
 function pseudoRandom(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -82,18 +80,15 @@ function pseudoRandom(str) {
   return (Math.abs(hash) % 1000) / 1000;
 }
 
-// FÓRMULA DE DISPERSIÓN POLAR ORGÁNICA (ELIMINA LAS LÍNEAS RECTAS)
 function getOrganicOffset(gescalKey) {
-  const angle = pseudoRandom(gescalKey + 'ang') * 2 * Math.PI; // Ámbar de 0 a 360 grados
-  const radius = 0.0006 + pseudoRandom(gescalKey + 'rad') * 0.0045; // Radio de 60m a 450m
+  const angle = pseudoRandom(gescalKey + 'ang') * 2 * Math.PI;
+  const radius = 0.0006 + pseudoRandom(gescalKey + 'rad') * 0.0045;
   const latOffset = radius * Math.cos(angle);
   const lonOffset = radius * Math.sin(angle) * 1.3;
   return { latOffset, lonOffset };
 }
 
-// Construye la dirección usando Columna L si existe o combinación limpia
 function buildFullSearchQuery(b) {
-  // Si existe dirección completa formateada (Columna L)
   const colL = b['DIRECCION_COMPLETA'] || b['DIRECCION COMPLETA'] || b['DIRECCION'] || b['Dirección'];
   if (colL && String(colL).trim().length > 5) {
     return `${String(colL).trim()}, España`;
@@ -184,7 +179,6 @@ export default function MapView({
     return Array.from(pobsSet).sort();
   }, [edificios]);
 
-  // Rastreo GPS
   useEffect(() => {
     let watchId;
     if (navigator.geolocation) {
@@ -208,6 +202,13 @@ export default function MapView({
     async function loadGeocodes() {
       try {
         setLoadingGeocodes(true);
+
+        // PURGA AUTOMÁTICA DE COORDENADAS LINEALES ANTIGUAS
+        if (!localStorage.getItem('huella_purge_linear_cache_v5')) {
+          await db.clearGeocodesCache();
+          localStorage.setItem('huella_purge_linear_cache_v5', 'true');
+        }
+
         const cached = await db.getTodosGeocodes();
         
         const mapped = [];
@@ -242,7 +243,6 @@ export default function MapView({
     return () => { isMounted = false; };
   }, [edificios]);
 
-  // GEOCODIFICACIÓN CON BÚSQUEDA REAL Y DISPERSIÓN POLAR ORGÁNICA (SIN LÍNEAS RECTAS)
   const geocodeAllUnmappedContinuously = async (list, checkIsMounted) => {
     for (let i = 0; i < list.length; i++) {
       if (!checkIsMounted()) break;
@@ -254,7 +254,6 @@ export default function MapView({
       let finalCoords = null;
       const queryStr = buildFullSearchQuery(b);
 
-      // 1. Búsqueda real en OpenStreetMap con cabecera de petición oficial
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryStr)}&limit=1`, {
           headers: { 'User-Agent': 'HuellaCRM-App/2.0' }
@@ -265,7 +264,6 @@ export default function MapView({
         }
       } catch (e) {}
 
-      // 2. Fallback Orgánico Circular (Círculo de puntos, nunca líneas rectas)
       if (!finalCoords) {
         let baseCenter = TOWN_COORDS[pobNorm];
         if (!baseCenter) baseCenter = [40.029, -6.088];
@@ -297,7 +295,6 @@ export default function MapView({
     });
   }, [geocodedEdificios, poblacionFiltro]);
 
-  // Centrado dinámico
   useEffect(() => {
     if (edificiosVisibles.length > 0) {
       let sumLat = 0;
