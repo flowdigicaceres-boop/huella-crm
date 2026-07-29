@@ -71,35 +71,49 @@ function normalizeText(str) {
     .replace(/\s+/g, ' ');
 }
 
-function pseudoRandom(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return (Math.abs(hash) % 1000) / 1000;
-}
-
-function getOrganicOffset(gescalKey) {
-  const angle = pseudoRandom(gescalKey + 'ang') * 2 * Math.PI;
-  const radius = 0.0006 + pseudoRandom(gescalKey + 'rad') * 0.0045;
-  const latOffset = radius * Math.cos(angle);
-  const lonOffset = radius * Math.sin(angle) * 1.3;
-  return { latOffset, lonOffset };
-}
-
-function buildFullSearchQuery(b) {
-  const colL = b['DIRECCION_COMPLETA'] || b['DIRECCION COMPLETA'] || b['DIRECCION'] || b['Dirección'];
-  if (colL && String(colL).trim().length > 5) {
-    return `${String(colL).trim()}, España`;
-  }
-
+// BÚSQUEDA DIRECTA EN CALLES REALES (SIN BLOQUEOS Y SIN CÍRCULOS)
+async function geocodeOnRealStreet(b) {
+  const poblacion = resolvePoblacion(b);
   const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
   const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();
-  const num = String(b['NUM'] || '').replace(/s\/n/i, '').trim();
-  const pob = resolvePoblacion(b);
+  const num = parseInt(String(b['NUM'] || '1').replace(/\D/g, ''), 10) || 1;
 
-  return `${tipo} ${nombre} ${num}, ${pob}, Cáceres, España`.replace(/\s+/g, ' ').trim();
+  if (!nombre) return null;
+
+  // Intento 1: Tipo + Nombre + Número + Población
+  try {
+    const q1 = `${tipo} ${nombre} ${num}, ${poblacion}, España`;
+    const res1 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q1)}&limit=1`);
+    const data1 = await res1.json();
+    if (data1 && data1.length > 0) {
+      return { lat: parseFloat(data1[0].lat), lon: parseFloat(data1[0].lon) };
+    }
+  } catch (e) {}
+
+  // Intento 2: Nombre + Número + Población
+  try {
+    const q2 = `${nombre} ${num}, ${poblacion}, España`;
+    const res2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q2)}&limit=1`);
+    const data2 = await res2.json();
+    if (data2 && data2.length > 0) {
+      return { lat: parseFloat(data2[0].lat), lon: parseFloat(data2[0].lon) };
+    }
+  } catch (e) {}
+
+  // Intento 3: Nombre de la Calle + Población (Ubicación en Calle Real)
+  try {
+    const q3 = `${nombre}, ${poblacion}, España`;
+    const res3 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q3)}&limit=1`);
+    const data3 = await res3.json();
+    if (data3 && data3.length > 0) {
+      const streetLat = parseFloat(data3[0].lat);
+      const streetLon = parseFloat(data3[0].lon);
+      const offset = (num % 30) * 0.00005;
+      return { lat: streetLat + offset, lon: streetLon + offset };
+    }
+  } catch (e) {}
+
+  return null;
 }
 
 const getMarkerIcon = (status) => {
@@ -179,6 +193,7 @@ export default function MapView({
     return Array.from(pobsSet).sort();
   }, [edificios]);
 
+  // Rastreo GPS
   useEffect(() => {
     let watchId;
     if (navigator.geolocation) {
@@ -203,10 +218,10 @@ export default function MapView({
       try {
         setLoadingGeocodes(true);
 
-        // PURGA AUTOMÁTICA DE COORDENADAS LINEALES ANTIGUAS
-        if (!localStorage.getItem('huella_purge_linear_cache_v5')) {
+        // PURGA DEFINITIVA DE CÍRCULOS
+        if (!localStorage.getItem('huella_purge_no_circles_v8')) {
           await db.clearGeocodesCache();
-          localStorage.setItem('huella_purge_linear_cache_v5', 'true');
+          localStorage.setItem('huella_purge_no_circles_v8', 'true');
         }
 
         const cached = await db.getTodosGeocodes();
@@ -248,32 +263,8 @@ export default function MapView({
       if (!checkIsMounted()) break;
       const b = list[i];
       const gescalKey = String(b.GESCAL26 || i);
-      const poblacion = resolvePoblacion(b);
-      const pobNorm = normalizeText(poblacion);
 
-      let finalCoords = null;
-      const queryStr = buildFullSearchQuery(b);
-
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryStr)}&limit=1`, {
-          headers: { 'User-Agent': 'HuellaCRM-App/2.0' }
-        });
-        const data = await res.json();
-        if (data && data.length > 0) {
-          finalCoords = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-        }
-      } catch (e) {}
-
-      if (!finalCoords) {
-        let baseCenter = TOWN_COORDS[pobNorm];
-        if (!baseCenter) baseCenter = [40.029, -6.088];
-
-        const { latOffset, lonOffset } = getOrganicOffset(gescalKey);
-        finalCoords = { 
-          lat: baseCenter[0] + latOffset, 
-          lon: baseCenter[1] + lonOffset 
-        };
-      }
+      const finalCoords = await geocodeOnRealStreet(b);
 
       if (finalCoords && checkIsMounted()) {
         await db.saveGeocode(gescalKey, finalCoords.lat, finalCoords.lon);
@@ -295,6 +286,7 @@ export default function MapView({
     });
   }, [geocodedEdificios, poblacionFiltro]);
 
+  // Centrado dinámico
   useEffect(() => {
     if (edificiosVisibles.length > 0) {
       let sumLat = 0;
@@ -420,7 +412,7 @@ export default function MapView({
             </>
           )}
 
-          {/* MARCADORES DE LOS EDIFICIOS */}
+          {/* MARCADORES DE LOS EDIFICIOS EN CALLES REALES */}
           {edificiosVisibles.map((e, idx) => (
             <Marker 
               key={String(e.GESCAL26) || idx} 
