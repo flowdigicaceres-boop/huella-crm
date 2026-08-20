@@ -12,7 +12,6 @@ export function useGoogleSheets() {
   
   const isSyncingVisitasRef = useRef(false);
 
-  // URL de Google Apps Script guardada en localStorage
   const [scriptUrl, setScriptUrl] = useState(() => localStorage.getItem('huella_crm_script_url') || '');
 
   const saveScriptUrl = (url) => {
@@ -21,7 +20,6 @@ export function useGoogleSheets() {
     setScriptUrl(trimmedUrl);
   };
 
-  // Cargar datos de la base de datos local IndexedDB
   const loadLocalData = useCallback(async () => {
     try {
       const localEdificios = await db.getEdificios();
@@ -35,12 +33,9 @@ export function useGoogleSheets() {
     }
   }, []);
 
-  // Enviar visita a Google Apps Script (Guarda en pestaña VISITAS y actualiza Columna K de EDIFICIOS)
   const sendVisitaToSheets = useCallback(async (visita) => {
     if (!scriptUrl) throw new Error('No Apps Script URL configured');
     
-    // Payload enviado con todos los alias posibles para que Google Apps Script 
-    // escriba en la pestaña VISITAS y reescriba la Columna K (COMENTARIO) de EDIFICIOS
     const payload = {
       action: 'addVisita',
       type: 'visita',
@@ -78,7 +73,6 @@ export function useGoogleSheets() {
     return true;
   }, [scriptUrl]);
 
-  // Sincronizar visitas pendientes de envío
   const syncPendingVisitas = useCallback(async () => {
     if (!navigator.onLine || !scriptUrl || isSyncingVisitasRef.current) return;
     
@@ -92,8 +86,6 @@ export function useGoogleSheets() {
         isSyncingVisitasRef.current = false;
         return;
       }
-      
-      console.log(`Sincronizando ${pending.length} visitas pendientes...`);
       
       for (const visita of pending) {
         try {
@@ -123,12 +115,10 @@ export function useGoogleSheets() {
     }
   }, [scriptUrl, sendVisitaToSheets, loadLocalData]);
 
-  // Obtener todos los datos de Google Sheets
   const fetchData = useCallback(async (forceRefresh = false) => {
     setLoading(true);
-    setError(null);
     
-    await loadLocalData();
+    const local = await loadLocalData();
 
     if (!scriptUrl) {
       setError('Configura la URL de Google Apps Script en los Ajustes.');
@@ -153,19 +143,26 @@ export function useGoogleSheets() {
         
         await loadLocalData();
         await syncPendingVisitas();
+        setError(null); // Limpiar error si todo fue bien
       } else {
         throw new Error(data.error || 'La hoja de cálculo devolvió un error');
       }
     } catch (e) {
-      console.error('Sincronización fallida, usando datos offline:', e);
-      setError(`Error de sincronización (${e.message || e}). Usando datos locales.`);
+      console.warn('Sincronización con aviso temporal (usando datos de seguridad del móvil):', e);
+      
+      // Si ya tenemos datos en el móvil, mostramos el aviso pero lo ocultamos a los 4 segundos
+      if (local && local.edificios && local.edificios.length > 0) {
+        setError('Error de sincronización de red. Usando datos locales del teléfono.');
+        setTimeout(() => setError(null), 4000);
+      } else {
+        setError(`Error de sincronización (${e.message || e}). Revisa tu conexión.`);
+      }
     } finally {
       setSyncing(false);
       setLoading(false);
     }
   }, [scriptUrl, loadLocalData, syncPendingVisitas]);
 
-  // Registrar una nueva visita
   const registrarVisita = async (gescal, resultado, comentario, proximaVisita) => {
     const now = new Date();
     const fecha = now.toLocaleDateString('es-ES'); 
@@ -183,12 +180,10 @@ export function useGoogleSheets() {
     };
     
     try {
-      // 1. Guardar visita localmente y actualizar Columna K (COMENTARIO) en la base de datos local
       const savedVisitaObj = await db.addVisita(nuevaVisita);
       await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioLimpio);
       await loadLocalData();
       
-      // 2. Enviar a Google Sheets
       if (navigator.onLine && scriptUrl) {
         try {
           await sendVisitaToSheets(savedVisitaObj);
