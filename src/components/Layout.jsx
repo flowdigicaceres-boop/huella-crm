@@ -1,4 +1,3 @@
-
 // src/components/Layout.jsx
 import React, { useState, useMemo } from 'react';
 import { 
@@ -16,37 +15,37 @@ import {
   Flame
 } from 'lucide-react';
 
-// COMPARADOR FLEXIBLE DE FECHAS DE HOY (SOPORTA ISO UTC 2026-08-27T22:00)
+// COMPARADOR INTELIGENTE DE DÍA Y MES (SOPORTA ISO UTC Y CUALQUIER AÑO)
 export const isVisitFromToday = (fechaRaw) => {
   if (!fechaRaw) return false;
   const s = String(fechaRaw).trim();
   const now = new Date();
   
-  const dayStr = String(now.getDate()).padStart(2, '0');
+  const day = now.getDate();
+  const dayStr = String(day).padStart(2, '0');
+  const prevDayStr = String(day > 1 ? day - 1 : 31).padStart(2, '0');
   const monthStr = String(now.getMonth() + 1).padStart(2, '0');
-  const yearStr = String(now.getFullYear());
 
-  if (s.includes(`${dayStr}/${monthStr}/${yearStr}`) || 
-      s.includes(`${now.getDate()}/${now.getMonth() + 1}/${yearStr}`) ||
-      s.includes(`${dayStr}-${monthStr}-${yearStr}`)) {
+  // 1. Coincidencia por Día/Mes local (ej: 28/08/ o 27/08/)
+  if (s.includes(`${dayStr}/${monthStr}/`) || 
+      s.includes(`${day}/${now.getMonth() + 1}/`) ||
+      s.includes(`${prevDayStr}/${monthStr}/`) ||
+      s.includes(`${dayStr}-${monthStr}-`)) {
     return true;
   }
 
-  // Soporte para cadenas ISO UTC de zona horaria (2026-08-27T22:00 o 2026-08-28)
-  const prevDayStr = String(now.getDate() - 1).padStart(2, '0');
-  if (s.includes(`${yearStr}-${monthStr}-${dayStr}`) || 
-      s.includes(`${yearStr}-${monthStr}-${prevDayStr}T22:`) ||
-      s.includes(`${yearStr}-${monthStr}-${prevDayStr}T23:`)) {
+  // 2. Coincidencia ISO UTC (ej: -08-27T22:00 o -08-28)
+  if (s.includes(`-${monthStr}-${dayStr}`) || 
+      s.includes(`-${monthStr}-${prevDayStr}T22:`) ||
+      s.includes(`-${monthStr}-${prevDayStr}T23:`)) {
     return true;
   }
 
-  try {
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) {
-      const diffHours = Math.abs(now.getTime() - d.getTime()) / (1000 * 60 * 60);
-      if (diffHours <= 36) return true;
-    }
-  } catch (e) {}
+  // 3. Coincidencia si incluye el día y mes actuales en la cadena
+  if ((s.includes(`/${monthStr}/`) || s.includes(`-${monthStr}-`)) && 
+      (s.includes(dayStr) || s.includes(prevDayStr))) {
+    return true;
+  }
 
   return false;
 };
@@ -95,7 +94,7 @@ export default function Layout({
     }
   };
 
-  // CÁLCULO EN TIEMPO REAL CON DETECTOR FLEXIBLE DE HOY
+  // CÁLCULO EN TIEMPO REAL CON COMPARADOR DE DÍA Y MES
   const visitasHoyCount = useMemo(() => {
     return visitas.filter(v => isVisitFromToday(v.Fecha || v.fecha)).length;
   }, [visitas]);
