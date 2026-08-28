@@ -39,28 +39,46 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO DE VISITAS HOY CON COMPARADOR FLEXIBLE
+  // CÁLCULO DE VISITAS HOY CON LECTURA DOBLE (VISITAS + EDIFICIOS)
   const visitasHoyStats = useMemo(() => {
-    const deHoy = visitas.filter(v => isVisitFromToday(v.Fecha || v.fecha));
+    const mapaVisitasHoy = new Map();
+
+    (visitas || []).forEach(v => {
+      const f = v.Fecha || v.fecha;
+      if (isVisitFromToday(f)) {
+        const g = v.GESCAL || v.gescal;
+        if (g) mapaVisitasHoy.set(String(g), v.Resultado || v.resultado || '');
+      }
+    });
+
+    (edificios || []).forEach(b => {
+      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
+      if (isVisitFromToday(ult)) {
+        const g = b.GESCAL26 || b.GESCAL;
+        if (g && !mapaVisitasHoy.has(String(g))) {
+          mapaVisitasHoy.set(String(g), b['ESTADO IC'] || '');
+        }
+      }
+    });
 
     let concedidosHoy = 0;
     let denegadosHoy = 0;
     let enGestionHoy = 0;
 
-    deHoy.forEach(v => {
-      const r = (v.Resultado || v.resultado || '').toLowerCase();
+    mapaVisitasHoy.forEach((resultado) => {
+      const r = String(resultado || '').toLowerCase();
       if (r.includes('concedido')) concedidosHoy++;
       else if (r.includes('denegado')) denegadosHoy++;
       else enGestionHoy++;
     });
 
     return {
-      totalHoy: deHoy.length,
+      totalHoy: mapaVisitasHoy.size,
       concedidosHoy,
       denegadosHoy,
       enGestionHoy
     };
-  }, [visitas]);
+  }, [visitas, edificios]);
 
   // Dynamic global statistics
   const stats = useMemo(() => {
@@ -138,7 +156,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY CON SOPORTE ISO UTC */}
+      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY */}
       <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">

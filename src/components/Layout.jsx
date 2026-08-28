@@ -15,7 +15,6 @@ import {
   Flame
 } from 'lucide-react';
 
-// COMPARADOR INTELIGENTE DE DÍA Y MES (SOPORTA ISO UTC Y CUALQUIER AÑO)
 export const isVisitFromToday = (fechaRaw) => {
   if (!fechaRaw) return false;
   const s = String(fechaRaw).trim();
@@ -26,7 +25,6 @@ export const isVisitFromToday = (fechaRaw) => {
   const prevDayStr = String(day > 1 ? day - 1 : 31).padStart(2, '0');
   const monthStr = String(now.getMonth() + 1).padStart(2, '0');
 
-  // 1. Coincidencia por Día/Mes local (ej: 28/08/ o 27/08/)
   if (s.includes(`${dayStr}/${monthStr}/`) || 
       s.includes(`${day}/${now.getMonth() + 1}/`) ||
       s.includes(`${prevDayStr}/${monthStr}/`) ||
@@ -34,14 +32,12 @@ export const isVisitFromToday = (fechaRaw) => {
     return true;
   }
 
-  // 2. Coincidencia ISO UTC (ej: -08-27T22:00 o -08-28)
   if (s.includes(`-${monthStr}-${dayStr}`) || 
       s.includes(`-${monthStr}-${prevDayStr}T22:`) ||
       s.includes(`-${monthStr}-${prevDayStr}T23:`)) {
     return true;
   }
 
-  // 3. Coincidencia si incluye el día y mes actuales en la cadena
   if ((s.includes(`/${monthStr}/`) || s.includes(`-${monthStr}-`)) && 
       (s.includes(dayStr) || s.includes(prevDayStr))) {
     return true;
@@ -94,10 +90,28 @@ export default function Layout({
     }
   };
 
-  // CÁLCULO EN TIEMPO REAL CON COMPARADOR DE DÍA Y MES
+  // CÁLCULO DOBLE EN TIEMPO REAL (PESTAÑA VISITAS + TABLA PRINCIPAL EDIFICIOS)
   const visitasHoyCount = useMemo(() => {
-    return visitas.filter(v => isVisitFromToday(v.Fecha || v.fecha)).length;
-  }, [visitas]);
+    const gescalsSet = new Set();
+
+    (visitas || []).forEach(v => {
+      const f = v.Fecha || v.fecha;
+      if (isVisitFromToday(f)) {
+        const g = v.GESCAL || v.gescal;
+        if (g) gescalsSet.add(String(g));
+      }
+    });
+
+    (edificios || []).forEach(b => {
+      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
+      if (isVisitFromToday(ult)) {
+        const g = b.GESCAL26 || b.GESCAL;
+        if (g) gescalsSet.add(String(g));
+      }
+    });
+
+    return gescalsSet.size;
+  }, [visitas, edificios]);
 
   const isEdificiosActive = currentTab === 'list' || currentTab === 'detail' || currentTab === 'register-visit';
 
@@ -119,7 +133,7 @@ export default function Layout({
 
         {/* Sync, Connection & Daily Visits Badge */}
         <div className="flex items-center space-x-2">
-          {/* CONTADOR EN TIEMPO REAL DE VISITAS DE HOY */}
+          {/* CONTADOR DE HOY EN TIEMPO REAL */}
           <div 
             onClick={() => setCurrentTab('dashboard')}
             className="flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer active:scale-95 transition"
