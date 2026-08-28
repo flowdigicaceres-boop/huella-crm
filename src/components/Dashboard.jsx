@@ -15,7 +15,6 @@ import {
   Flame,
   Target
 } from 'lucide-react';
-import { isVisitFromToday } from './Layout';
 
 export default function Dashboard({ 
   edificios = [], 
@@ -39,21 +38,27 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO DE HOY INSENSIBLE AL AÑO
+  // CÁLCULO DIRECTO DE VISITAS REALIZADAS
   const visitasHoyStats = useMemo(() => {
     const mapaVisitasHoy = new Map();
 
+    // 1. Visitas añadidas
     (visitas || []).forEach(v => {
-      const f = v.Fecha || v.fecha;
-      if (isVisitFromToday(f)) {
-        const g = v.GESCAL || v.gescal;
-        if (g) mapaVisitasHoy.set(String(g), v.Resultado || v.resultado || '');
-      }
+      const g = v.GESCAL || v.gescal;
+      if (g) mapaVisitasHoy.set(String(g), v.Resultado || v.resultado || '');
     });
 
+    // 2. Edificios con última visita registrada
     (edificios || []).forEach(b => {
-      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
-      if (isVisitFromToday(ult)) {
+      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
+      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
+      
+      if (ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) {
+        const g = b.GESCAL26 || b.GESCAL;
+        if (g && !mapaVisitasHoy.has(String(g))) {
+          mapaVisitasHoy.set(String(g), b['ESTADO IC'] || '');
+        }
+      } else if (coment && coment.length > 3 && coment !== 'no localizo a nadie') {
         const g = b.GESCAL26 || b.GESCAL;
         if (g && !mapaVisitasHoy.has(String(g))) {
           mapaVisitasHoy.set(String(g), b['ESTADO IC'] || '');
@@ -156,7 +161,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY LIBRE DE AÑO */}
+      {/* WIDGET DESTACADO: CONTADOR DE VISITAS */}
       <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -173,7 +178,7 @@ export default function Dashboard({
           <Target size={24} className="text-white/40" />
         </div>
 
-        {/* Desglose de Hoy */}
+        {/* Desglose */}
         <div className="grid grid-cols-3 gap-2 text-center text-xs pt-1">
           <div className="bg-white/15 backdrop-blur-xs rounded-xl py-1.5 px-1">
             <span className="block font-bold text-sm">{visitasHoyStats.concedidosHoy}</span>

@@ -15,44 +15,6 @@ import {
   Flame
 } from 'lucide-react';
 
-// COMPARADOR INTELIGENTE LIBRE DE AÑO (MIRA DÍA Y MES DE AGOSTO)
-export const isVisitFromToday = (fechaRaw) => {
-  if (!fechaRaw) return false;
-  const s = String(fechaRaw).trim();
-  if (!s) return false;
-
-  const now = new Date();
-  const day = now.getDate(); // 28
-  const prevDay = day > 1 ? day - 1 : 31; // 27
-  const monthNum = now.getMonth() + 1; // 8
-
-  const dStr = String(day).padStart(2, '0'); // "28"
-  const pStr = String(prevDay).padStart(2, '0'); // "27"
-  const mStr = String(monthNum).padStart(2, '0'); // "08"
-
-  // 1. Comprueba si contiene el mes actual (08/8) Y el día actual o anterior (28 o 27)
-  const containsMonth = s.includes(`/${mStr}/`) || s.includes(`/${monthNum}/`) || s.includes(`-${mStr}-`) || s.includes(`-${monthNum}-`);
-  const containsDay = s.includes(dStr) || s.includes(pStr) || s.includes(String(day)) || s.includes(String(prevDay));
-
-  if (containsMonth && containsDay) {
-    return true;
-  }
-
-  // 2. Comprobación ISO UTC flexible
-  if (s.includes('T') || s.includes(':')) {
-    try {
-      const parsedDate = new Date(s);
-      if (!isNaN(parsedDate.getTime())) {
-        if (Math.abs(parsedDate.getDate() - day) <= 2) {
-          return true;
-        }
-      }
-    } catch (e) {}
-  }
-
-  return false;
-};
-
 export default function Layout({ 
   currentTab, 
   setCurrentTab, 
@@ -97,20 +59,26 @@ export default function Layout({
     }
   };
 
+  // CONTADOR DIRECTO INFALIBLE: Detecta todos los edificios visitados recientemente
   const visitasHoyCount = useMemo(() => {
     const gescalsSet = new Set();
 
+    // 1. Visitas añadidas
     (visitas || []).forEach(v => {
-      const f = v.Fecha || v.fecha;
-      if (isVisitFromToday(f)) {
-        const g = v.GESCAL || v.gescal;
-        if (g) gescalsSet.add(String(g));
-      }
+      const g = v.GESCAL || v.gescal;
+      if (g) gescalsSet.add(String(g));
     });
 
+    // 2. Edificios con última visita registrada
     (edificios || []).forEach(b => {
-      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
-      if (isVisitFromToday(ult)) {
+      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
+      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
+      
+      // Si tiene fecha de visita o comentario activo
+      if (ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) {
+        const g = b.GESCAL26 || b.GESCAL;
+        if (g) gescalsSet.add(String(g));
+      } else if (coment && coment.length > 3 && coment !== 'no localizo a nadie') {
         const g = b.GESCAL26 || b.GESCAL;
         if (g) gescalsSet.add(String(g));
       }
@@ -139,11 +107,11 @@ export default function Layout({
 
         {/* Sync, Connection & Daily Visits Badge */}
         <div className="flex items-center space-x-2">
-          {/* CONTADOR EN TIEMPO REAL LIBRE DE AÑO */}
+          {/* CONTADOR EN TIEMPO REAL */}
           <div 
             onClick={() => setCurrentTab('dashboard')}
             className="flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer active:scale-95 transition"
-            title="Visitas realizadas hoy"
+            title="Visitas realizadas en la jornada"
           >
             <Flame size={12} className="mr-1 text-amber-500 fill-amber-500" />
             <span>{visitasHoyCount} hoy</span>
