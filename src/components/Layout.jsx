@@ -1,3 +1,4 @@
+
 // src/components/Layout.jsx
 import React, { useState, useMemo } from 'react';
 import { 
@@ -14,6 +15,41 @@ import {
   Trash2,
   Flame
 } from 'lucide-react';
+
+// COMPARADOR FLEXIBLE DE FECHAS DE HOY (SOPORTA ISO UTC 2026-08-27T22:00)
+export const isVisitFromToday = (fechaRaw) => {
+  if (!fechaRaw) return false;
+  const s = String(fechaRaw).trim();
+  const now = new Date();
+  
+  const dayStr = String(now.getDate()).padStart(2, '0');
+  const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+  const yearStr = String(now.getFullYear());
+
+  if (s.includes(`${dayStr}/${monthStr}/${yearStr}`) || 
+      s.includes(`${now.getDate()}/${now.getMonth() + 1}/${yearStr}`) ||
+      s.includes(`${dayStr}-${monthStr}-${yearStr}`)) {
+    return true;
+  }
+
+  // Soporte para cadenas ISO UTC de zona horaria (2026-08-27T22:00 o 2026-08-28)
+  const prevDayStr = String(now.getDate() - 1).padStart(2, '0');
+  if (s.includes(`${yearStr}-${monthStr}-${dayStr}`) || 
+      s.includes(`${yearStr}-${monthStr}-${prevDayStr}T22:`) ||
+      s.includes(`${yearStr}-${monthStr}-${prevDayStr}T23:`)) {
+    return true;
+  }
+
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const diffHours = Math.abs(now.getTime() - d.getTime()) / (1000 * 60 * 60);
+      if (diffHours <= 36) return true;
+    }
+  } catch (e) {}
+
+  return false;
+};
 
 export default function Layout({ 
   currentTab, 
@@ -59,19 +95,9 @@ export default function Layout({
     }
   };
 
-  // CÁLCULO EN TIEMPO REAL DE VISITAS DE HOY
+  // CÁLCULO EN TIEMPO REAL CON DETECTOR FLEXIBLE DE HOY
   const visitasHoyCount = useMemo(() => {
-    const now = new Date();
-    const dayStr = String(now.getDate()).padStart(2, '0');
-    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
-    const yearStr = String(now.getFullYear());
-    
-    return visitas.filter(v => {
-      const f = String(v.Fecha || v.fecha || '').trim();
-      return f.includes(`${dayStr}/${monthStr}/${yearStr}`) || 
-             f.includes(`${now.getDate()}/${now.getMonth() + 1}/${yearStr}`) ||
-             f.startsWith(`${yearStr}-${monthStr}-${dayStr}`);
-    }).length;
+    return visitas.filter(v => isVisitFromToday(v.Fecha || v.fecha)).length;
   }, [visitas]);
 
   const isEdificiosActive = currentTab === 'list' || currentTab === 'detail' || currentTab === 'register-visit';

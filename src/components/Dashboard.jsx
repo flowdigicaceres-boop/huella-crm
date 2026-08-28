@@ -15,6 +15,7 @@ import {
   Flame,
   Target
 } from 'lucide-react';
+import { isVisitFromToday } from './Layout';
 
 export default function Dashboard({ 
   edificios = [], 
@@ -38,19 +39,9 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO EN TIEMPO REAL DE VISITAS REALIZADAS HOY
+  // CÁLCULO DE VISITAS HOY CON COMPARADOR FLEXIBLE
   const visitasHoyStats = useMemo(() => {
-    const now = new Date();
-    const dayStr = String(now.getDate()).padStart(2, '0');
-    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
-    const yearStr = String(now.getFullYear());
-
-    const deHoy = visitas.filter(v => {
-      const f = String(v.Fecha || v.fecha || '').trim();
-      return f.includes(`${dayStr}/${monthStr}/${yearStr}`) || 
-             f.includes(`${now.getDate()}/${now.getMonth() + 1}/${yearStr}`) ||
-             f.startsWith(`${yearStr}-${monthStr}-${dayStr}`);
-    });
+    const deHoy = visitas.filter(v => isVisitFromToday(v.Fecha || v.fecha));
 
     let concedidosHoy = 0;
     let denegadosHoy = 0;
@@ -131,7 +122,6 @@ export default function Dashboard({
     return 'bg-amber-50 text-amber-700 border-amber-100';
   };
 
-  // Porcentaje hacia un objetivo estimado de 20 visitas diarias
   const objetivoPorcentaje = Math.min(100, Math.round((visitasHoyStats.totalHoy / 20) * 100));
 
   return (
@@ -148,7 +138,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY */}
+      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY CON SOPORTE ISO UTC */}
       <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
@@ -181,7 +171,7 @@ export default function Dashboard({
           </div>
         </div>
 
-        {/* Barra de Progreso hacia Objetivo (Base 20 visitas) */}
+        {/* Barra de Progreso hacia Objetivo */}
         <div className="space-y-1 pt-1">
           <div className="flex justify-between text-[10px] font-bold text-amber-100">
             <span>Objetivo estimado (20)</span>
