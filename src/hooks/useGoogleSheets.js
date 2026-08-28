@@ -143,16 +143,14 @@ export function useGoogleSheets() {
         
         await loadLocalData();
         await syncPendingVisitas();
-        setError(null); // Limpiar error si todo fue bien
+        setError(null);
       } else {
         throw new Error(data.error || 'La hoja de cálculo devolvió un error');
       }
     } catch (e) {
-      console.warn('Sincronización con aviso temporal (usando datos de seguridad del móvil):', e);
-      
-      // Si ya tenemos datos en el móvil, mostramos el aviso pero lo ocultamos a los 4 segundos
+      console.warn('Sincronización con aviso temporal:', e);
       if (local && local.edificios && local.edificios.length > 0) {
-        setError('Error de sincronización de red. Usando datos locales del teléfono.');
+        setError('Error de sincronización de red. Usando datos locales.');
         setTimeout(() => setError(null), 4000);
       } else {
         setError(`Error de sincronización (${e.message || e}). Revisa tu conexión.`);
@@ -163,10 +161,17 @@ export function useGoogleSheets() {
     }
   }, [scriptUrl, loadLocalData, syncPendingVisitas]);
 
+  // REGISTRO DE VISITA CON FECHA LOCAL ESTRICTA (BLOQUEA DESFASE UTC DE ZONA HORARIA)
   const registrarVisita = async (gescal, resultado, comentario, proximaVisita) => {
     const now = new Date();
-    const fecha = now.toLocaleDateString('es-ES'); 
-    const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    
+    // Formateo explícito DD/MM/YYYY local sin conversión ISO
+    const dayStr = String(now.getDate()).padStart(2, '0');
+    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+    const yearStr = String(now.getFullYear());
+    const fecha = `${dayStr}/${monthStr}/${yearStr}`;
+    
+    const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const comentarioLimpio = String(comentario || '').trim();
     
     const nuevaVisita = {
