@@ -39,7 +39,7 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO DE VISITAS HOY CON LECTURA DOBLE (VISITAS + EDIFICIOS)
+  // CÁLCULO DE HOY INSENSIBLE AL AÑO
   const visitasHoyStats = useMemo(() => {
     const mapaVisitasHoy = new Map();
 
@@ -156,7 +156,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY */}
+      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY LIBRE DE AÑO */}
       <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
