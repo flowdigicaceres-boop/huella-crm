@@ -28,11 +28,9 @@ function App() {
   const [selectedBuildingGescal, setSelectedBuildingGescal] = useState(null);
   const [globalSearch, setGlobalSearch] = useState('');
   
-  // Navigation history to allow back button to return to the correct origin
   const [previousTab, setPreviousTab] = useState('dashboard');
 
   const handleTabChange = (tab) => {
-    // Record history before changing to detail/register views
     if (currentTab !== 'detail' && currentTab !== 'register-visit') {
       setPreviousTab(currentTab);
     }
@@ -49,7 +47,7 @@ function App() {
 
   const handleRegisterVisitSave = async (gescal, resultado, comentario, proximaVisita) => {
     await registrarVisita(gescal, resultado, comentario, proximaVisita);
-    setCurrentTab('detail'); // return to the building file
+    setCurrentTab('detail');
   };
 
   const renderContent = () => {
@@ -137,6 +135,7 @@ function App() {
       saveScriptUrl={saveScriptUrl}
       fetchData={fetchData}
       edificios={edificios}
+      visitas={visitas}
     >
       {renderContent()}
     </Layout>

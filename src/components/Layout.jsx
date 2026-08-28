@@ -1,5 +1,5 @@
 // src/components/Layout.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Home, 
   Map, 
@@ -11,7 +11,8 @@ import {
   Wifi, 
   WifiOff, 
   X,
-  Trash2
+  Trash2,
+  Flame
 } from 'lucide-react';
 
 export default function Layout({ 
@@ -25,6 +26,7 @@ export default function Layout({
   saveScriptUrl, 
   fetchData, 
   edificios = [],
+  visitas = [],
   children 
 }) {
   const [showSettings, setShowSettings] = useState(!scriptUrl);
@@ -57,12 +59,27 @@ export default function Layout({
     }
   };
 
+  // CÁLCULO EN TIEMPO REAL DE VISITAS DE HOY
+  const visitasHoyCount = useMemo(() => {
+    const now = new Date();
+    const dayStr = String(now.getDate()).padStart(2, '0');
+    const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+    const yearStr = String(now.getFullYear());
+    
+    return visitas.filter(v => {
+      const f = String(v.Fecha || v.fecha || '').trim();
+      return f.includes(`${dayStr}/${monthStr}/${yearStr}`) || 
+             f.includes(`${now.getDate()}/${now.getMonth() + 1}/${yearStr}`) ||
+             f.startsWith(`${yearStr}-${monthStr}-${dayStr}`);
+    }).length;
+  }, [visitas]);
+
   const isEdificiosActive = currentTab === 'list' || currentTab === 'detail' || currentTab === 'register-visit';
 
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 text-slate-900 select-none pb-20">
       {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-100 px-4 py-3 flex items-center justify-between shadow-xs">
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-100 px-3 py-2.5 flex items-center justify-between shadow-xs">
         <div 
           onClick={() => setCurrentTab('dashboard')}
           className="flex items-center space-x-2 cursor-pointer active:scale-95 transition"
@@ -70,14 +87,25 @@ export default function Layout({
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
             H
           </div>
-          <span className="font-bold text-xl tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
+          <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
             Huella CRM
           </span>
         </div>
 
-        {/* Sync and Connection Indicators */}
-        <div className="flex items-center space-x-2.5">
-          <div className={`flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold ${
+        {/* Sync, Connection & Daily Visits Badge */}
+        <div className="flex items-center space-x-2">
+          {/* CONTADOR EN TIEMPO REAL DE VISITAS DE HOY */}
+          <div 
+            onClick={() => setCurrentTab('dashboard')}
+            className="flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer active:scale-95 transition"
+            title="Visitas realizadas hoy"
+          >
+            <Flame size={12} className="mr-1 text-amber-500 fill-amber-500" />
+            <span>{visitasHoyCount} hoy</span>
+          </div>
+
+          {/* Connection status */}
+          <div className={`flex items-center px-2 py-1 rounded-full text-[11px] font-bold ${
             isOnline ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-rose-50 text-rose-600 border border-rose-100'
           }`}>
             {isOnline ? (
@@ -97,7 +125,7 @@ export default function Layout({
             onClick={handleRefresh}
             disabled={loading || syncing}
             type="button"
-            className={`p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition active:scale-95 ${
+            className={`p-1.5 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition active:scale-95 ${
               syncing || loading ? 'animate-spin text-blue-600' : ''
             }`}
             title="Sincronizar con Google Sheets"
@@ -111,7 +139,7 @@ export default function Layout({
               setShowSettings(true);
             }}
             type="button"
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition active:scale-95"
+            className="p-1.5 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition active:scale-95"
             title="Ajustes de Conexión"
           >
             <Settings size={18} />
@@ -226,7 +254,6 @@ export default function Layout({
                 />
               </div>
 
-              {/* BOTÓN ROJO PARA VACIAR CACHÉ ANTIGUA */}
               <div className="pt-2 border-t border-slate-100">
                 <button
                   type="button"
