@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { 
   Home, 
-  Map, 
+  Map as MapIcon, 
   List, 
   Calendar, 
   BarChart3, 
@@ -14,6 +14,37 @@ import {
   Trash2,
   Flame
 } from 'lucide-react';
+
+export const isVisitFromToday = (fechaRaw) => {
+  if (!fechaRaw) return false;
+  const s = String(fechaRaw).trim();
+  const now = new Date();
+  
+  const day = now.getDate();
+  const dayStr = String(day).padStart(2, '0');
+  const prevDayStr = String(day > 1 ? day - 1 : 31).padStart(2, '0');
+  const monthStr = String(now.getMonth() + 1).padStart(2, '0');
+
+  if (s.includes(`${dayStr}/${monthStr}/`) || 
+      s.includes(`${day}/${now.getMonth() + 1}/`) ||
+      s.includes(`${prevDayStr}/${monthStr}/`) ||
+      s.includes(`${dayStr}-${monthStr}-`)) {
+    return true;
+  }
+
+  if (s.includes(`-${monthStr}-${dayStr}`) || 
+      s.includes(`-${monthStr}-${prevDayStr}T22:`) ||
+      s.includes(`-${monthStr}-${prevDayStr}T23:`)) {
+    return true;
+  }
+
+  if ((s.includes(`/${monthStr}/`) || s.includes(`-${monthStr}-`)) && 
+      (s.includes(dayStr) || s.includes(prevDayStr))) {
+    return true;
+  }
+
+  return false;
+};
 
 export default function Layout({ 
   currentTab, 
@@ -59,32 +90,27 @@ export default function Layout({
     }
   };
 
-  // CONTADOR DIRECTO INFALIBLE: Detecta todos los edificios visitados recientemente
+  // CÁLCULO SEGURO SIN CONSTRUCTORES EN CONFLICTO
   const visitasHoyCount = useMemo(() => {
-    const gescalsSet = new Set();
+    const gescalsObj = {};
 
-    // 1. Visitas añadidas
     (visitas || []).forEach(v => {
-      const g = v.GESCAL || v.gescal;
-      if (g) gescalsSet.add(String(g));
-    });
-
-    // 2. Edificios con última visita registrada
-    (edificios || []).forEach(b => {
-      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
-      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
-      
-      // Si tiene fecha de visita o comentario activo
-      if (ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) {
-        const g = b.GESCAL26 || b.GESCAL;
-        if (g) gescalsSet.add(String(g));
-      } else if (coment && coment.length > 3 && coment !== 'no localizo a nadie') {
-        const g = b.GESCAL26 || b.GESCAL;
-        if (g) gescalsSet.add(String(g));
+      const f = v.Fecha || v.fecha;
+      if (isVisitFromToday(f)) {
+        const g = v.GESCAL || v.gescal;
+        if (g) gescalsObj[String(g)] = true;
       }
     });
 
-    return gescalsSet.size;
+    (edificios || []).forEach(b => {
+      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
+      if (isVisitFromToday(ult)) {
+        const g = b.GESCAL26 || b.GESCAL;
+        if (g) gescalsObj[String(g)] = true;
+      }
+    });
+
+    return Object.keys(gescalsObj).length;
   }, [visitas, edificios]);
 
   const isEdificiosActive = currentTab === 'list' || currentTab === 'detail' || currentTab === 'register-visit';
@@ -107,11 +133,11 @@ export default function Layout({
 
         {/* Sync, Connection & Daily Visits Badge */}
         <div className="flex items-center space-x-2">
-          {/* CONTADOR EN TIEMPO REAL */}
+          {/* CONTADOR DE HOY EN TIEMPO REAL */}
           <div 
             onClick={() => setCurrentTab('dashboard')}
             className="flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer active:scale-95 transition"
-            title="Visitas realizadas en la jornada"
+            title="Visitas realizadas hoy"
           >
             <Flame size={12} className="mr-1 text-amber-500 fill-amber-500" />
             <span>{visitasHoyCount} hoy</span>
@@ -210,7 +236,7 @@ export default function Layout({
             currentTab === 'map' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
           }`}
         >
-          <Map size={20} className={currentTab === 'map' ? 'scale-110' : ''} />
+          <MapIcon size={20} className={currentTab === 'map' ? 'scale-110' : ''} />
           <span className="text-[10px] mt-1">Mapa</span>
         </button>
 
