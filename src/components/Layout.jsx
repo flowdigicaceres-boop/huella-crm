@@ -15,37 +15,6 @@ import {
   Flame
 } from 'lucide-react';
 
-export const isVisitFromToday = (fechaRaw) => {
-  if (!fechaRaw) return false;
-  const s = String(fechaRaw).trim();
-  const now = new Date();
-  
-  const day = now.getDate();
-  const dayStr = String(day).padStart(2, '0');
-  const prevDayStr = String(day > 1 ? day - 1 : 31).padStart(2, '0');
-  const monthStr = String(now.getMonth() + 1).padStart(2, '0');
-
-  if (s.includes(`${dayStr}/${monthStr}/`) || 
-      s.includes(`${day}/${now.getMonth() + 1}/`) ||
-      s.includes(`${prevDayStr}/${monthStr}/`) ||
-      s.includes(`${dayStr}-${monthStr}-`)) {
-    return true;
-  }
-
-  if (s.includes(`-${monthStr}-${dayStr}`) || 
-      s.includes(`-${monthStr}-${prevDayStr}T22:`) ||
-      s.includes(`-${monthStr}-${prevDayStr}T23:`)) {
-    return true;
-  }
-
-  if ((s.includes(`/${monthStr}/`) || s.includes(`-${monthStr}-`)) && 
-      (s.includes(dayStr) || s.includes(prevDayStr))) {
-    return true;
-  }
-
-  return false;
-};
-
 export default function Layout({ 
   currentTab, 
   setCurrentTab, 
@@ -90,28 +59,34 @@ export default function Layout({
     }
   };
 
-  // CÁLCULO SEGURO SIN CONSTRUCTORES EN CONFLICTO
+  // CÁLCULO BLINDADO DE VISITAS DE HOY (NUNCA VUELVE A 0 DURANTE LA JORNADA)
   const visitasHoyCount = useMemo(() => {
-    const gescalsObj = {};
+    const todayStr = new Date().toLocaleDateString('es-ES');
+    const storedDate = localStorage.getItem('huella_daily_counter_date');
+    let idsSet = new Set();
 
+    // 1. Cargar visitas guardadas en la memoria permanente de hoy
+    if (storedDate === todayStr) {
+      try {
+        const rawIds = localStorage.getItem('huella_daily_visited_ids');
+        if (rawIds) {
+          idsSet = new Set(JSON.parse(rawIds));
+        }
+      } catch (e) {}
+    } else {
+      // Medianoche superada: limpiar para el nuevo día
+      localStorage.setItem('huella_daily_counter_date', todayStr);
+      localStorage.setItem('huella_daily_visited_ids', JSON.stringify([]));
+    }
+
+    // 2. Sumar visitas añadidas en la sesión
     (visitas || []).forEach(v => {
-      const f = v.Fecha || v.fecha;
-      if (isVisitFromToday(f)) {
-        const g = v.GESCAL || v.gescal;
-        if (g) gescalsObj[String(g)] = true;
-      }
+      const g = v.GESCAL || v.gescal;
+      if (g) idsSet.add(String(g).trim());
     });
 
-    (edificios || []).forEach(b => {
-      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
-      if (isVisitFromToday(ult)) {
-        const g = b.GESCAL26 || b.GESCAL;
-        if (g) gescalsObj[String(g)] = true;
-      }
-    });
-
-    return Object.keys(gescalsObj).length;
-  }, [visitas, edificios]);
+    return idsSet.size;
+  }, [visitas]);
 
   const isEdificiosActive = currentTab === 'list' || currentTab === 'detail' || currentTab === 'register-visit';
 
@@ -133,7 +108,7 @@ export default function Layout({
 
         {/* Sync, Connection & Daily Visits Badge */}
         <div className="flex items-center space-x-2">
-          {/* CONTADOR DE HOY EN TIEMPO REAL */}
+          {/* CONTADOR PERMANENTE DE HOY */}
           <div 
             onClick={() => setCurrentTab('dashboard')}
             className="flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer active:scale-95 transition"

@@ -2,6 +2,31 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '../services/db';
 
+// Helper para registrar la visita en la memoria permanente del día
+function registrarVisitaEnMemoriaDiaria(gescalId) {
+  try {
+    const todayStr = new Date().toLocaleDateString('es-ES');
+    const storedDate = localStorage.getItem('huella_daily_counter_date');
+    let idsSet = new Set();
+
+    if (storedDate === todayStr) {
+      const rawIds = localStorage.getItem('huella_daily_visited_ids');
+      if (rawIds) {
+        idsSet = new Set(JSON.parse(rawIds));
+      }
+    } else {
+      // Nuevo día: reiniciar lista
+      localStorage.setItem('huella_daily_counter_date', todayStr);
+    }
+
+    if (gescalId) {
+      idsSet.add(String(gescalId).trim());
+    }
+
+    localStorage.setItem('huella_daily_visited_ids', JSON.stringify(Array.from(idsSet)));
+  } catch (e) {}
+}
+
 export function useGoogleSheets() {
   const [edificios, setEdificios] = useState([]);
   const [visitas, setVisitas] = useState([]);
@@ -161,11 +186,10 @@ export function useGoogleSheets() {
     }
   }, [scriptUrl, loadLocalData, syncPendingVisitas]);
 
-  // REGISTRO DE VISITA CON FECHA LOCAL ESTRICTA (BLOQUEA DESFASE UTC DE ZONA HORARIA)
+  // REGISTRO DE VISITA CON BLINDAJE DE MEMORIA PERMANENTE
   const registrarVisita = async (gescal, resultado, comentario, proximaVisita) => {
     const now = new Date();
     
-    // Formateo explícito DD/MM/YYYY local sin conversión ISO
     const dayStr = String(now.getDate()).padStart(2, '0');
     const monthStr = String(now.getMonth() + 1).padStart(2, '0');
     const yearStr = String(now.getFullYear());
@@ -185,10 +209,15 @@ export function useGoogleSheets() {
     };
     
     try {
+      // 1. Guardar de inmediato en la memoria permanente del día (NUNCA BAJA A 0)
+      registrarVisitaEnMemoriaDiaria(gescal);
+
+      // 2. Guardar en base de datos local
       const savedVisitaObj = await db.addVisita(nuevaVisita);
       await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioLimpio);
       await loadLocalData();
       
+      // 3. Enviar a Google Sheets
       if (navigator.onLine && scriptUrl) {
         try {
           await sendVisitaToSheets(savedVisitaObj);

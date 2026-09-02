@@ -15,7 +15,6 @@ import {
   Flame,
   Target
 } from 'lucide-react';
-import { isVisitFromToday } from './Layout';
 
 export default function Dashboard({ 
   edificios = [], 
@@ -39,41 +38,41 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO DIRECTO Y 100% SEGURO DE VISITAS HOY
+  // CÁLCULO PERMANENTE DE VISITAS DE HOY
   const visitasHoyStats = useMemo(() => {
-    const mapaVisitas = {};
+    const todayStr = new Date().toLocaleDateString('es-ES');
+    const storedDate = localStorage.getItem('huella_daily_counter_date');
+    let idsSet = new Set();
+
+    if (storedDate === todayStr) {
+      try {
+        const rawIds = localStorage.getItem('huella_daily_visited_ids');
+        if (rawIds) {
+          idsSet = new Set(JSON.parse(rawIds));
+        }
+      } catch (e) {}
+    }
 
     (visitas || []).forEach(v => {
-      const f = v.Fecha || v.fecha;
-      if (isVisitFromToday(f)) {
-        const g = v.GESCAL || v.gescal;
-        if (g) mapaVisitas[String(g)] = v.Resultado || v.resultado || '';
-      }
-    });
-
-    (edificios || []).forEach(b => {
-      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
-      if (isVisitFromToday(ult)) {
-        const g = b.GESCAL26 || b.GESCAL;
-        if (g && !mapaVisitas[String(g)]) {
-          mapaVisitas[String(g)] = b['ESTADO IC'] || '';
-        }
-      }
+      const g = v.GESCAL || v.gescal;
+      if (g) idsSet.add(String(g).trim());
     });
 
     let concedidosHoy = 0;
     let denegadosHoy = 0;
     let enGestionHoy = 0;
 
-    Object.values(mapaVisitas).forEach((resultado) => {
-      const r = String(resultado || '').toLowerCase();
-      if (r.includes('concedido')) concedidosHoy++;
-      else if (r.includes('denegado')) denegadosHoy++;
+    // Buscar estado de cada finca visitada hoy
+    idsSet.forEach(gescalId => {
+      const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === String(gescalId));
+      const st = String(b?.['ESTADO IC'] || '').toLowerCase();
+      if (st.includes('concedido')) concedidosHoy++;
+      else if (st.includes('denegado')) denegadosHoy++;
       else enGestionHoy++;
     });
 
     return {
-      totalHoy: Object.keys(mapaVisitas).length,
+      totalHoy: idsSet.size,
       concedidosHoy,
       denegadosHoy,
       enGestionHoy
@@ -156,7 +155,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY */}
+      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY BLINDADO */}
       <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
