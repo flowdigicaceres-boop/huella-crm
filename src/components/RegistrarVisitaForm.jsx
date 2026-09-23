@@ -15,14 +15,15 @@ import {
 } from 'lucide-react';
 
 const RESULT_OPTIONS = [
-  { id: 'Portal cerrado', label: '🚪 Portal cerrado', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' },
-  { id: 'No localizado', label: '❓ No localizado', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' },
-  { id: 'Hablado con vecino', label: '👥 Hablado con vecino', color: 'border-blue-100 text-blue-800 bg-blue-50/50 active:bg-blue-200' },
-  { id: 'Hablado con presidente', label: '👑 Hablado con presidente', color: 'border-indigo-100 text-indigo-800 bg-indigo-50/50 active:bg-indigo-200' },
-  { id: 'Pendiente documentación', label: '📄 Pendiente doc.', color: 'border-amber-100 text-amber-800 bg-amber-50/50 active:bg-amber-200' },
-  { id: 'Pendiente llamada', label: '📞 Pendiente llamada', color: 'border-orange-100 text-orange-800 bg-orange-50/50 active:bg-orange-200' },
   { id: 'Concedido', label: '🟢 Concedido', color: 'border-emerald-200 text-emerald-800 bg-emerald-50 active:bg-emerald-200 font-bold' },
   { id: 'Denegado', label: '🔴 Denegado', color: 'border-rose-200 text-rose-800 bg-rose-50 active:bg-rose-200 font-bold' },
+  { id: 'En gestión', label: '🟡 En gestión', color: 'border-amber-200 text-amber-800 bg-amber-50 active:bg-amber-200 font-bold' },
+  { id: 'Hablado con presidente', label: '👑 Hablado con presidente', color: 'border-indigo-100 text-indigo-800 bg-indigo-50/50 active:bg-indigo-200' },
+  { id: 'Hablado con vecino', label: '👥 Hablado con vecino', color: 'border-blue-100 text-blue-800 bg-blue-50/50 active:bg-blue-200' },
+  { id: 'Portal cerrado', label: '🚪 Portal cerrado', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' },
+  { id: 'No localizado', label: '❓ No localizado', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' },
+  { id: 'Pendiente doc.', label: '📄 Pendiente doc.', color: 'border-amber-100 text-amber-800 bg-amber-50/50 active:bg-amber-200' },
+  { id: 'Pendiente llamada', label: '📞 Pendiente llamada', color: 'border-orange-100 text-orange-800 bg-orange-50/50 active:bg-orange-200' },
   { id: 'Otro', label: '⚙️ Otro', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' }
 ];
 
@@ -38,16 +39,13 @@ export default function RegistrarVisitaForm({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState('');
 
-  // Estados de Dictado por Voz e IA Gemini
   const [isRecording, setIsRecording] = useState(false);
   const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
   const [aiStatusMsg, setAiStatusMsg] = useState('');
   const recognitionRef = useRef(null);
 
-  // Clave de API Gemini opcional guardada en localStorage
   const geminiApiKey = localStorage.getItem('huella_gemini_api_key') || '';
 
-  // Find building
   const building = edificios.find(e => String(e.GESCAL26) === String(gescal));
 
   if (!building) {
@@ -70,7 +68,6 @@ export default function RegistrarVisitaForm({
   const num = String(building['NUM'] || '').trim();
   const fullAddress = `${tipoVia} ${nombreVia} ${num}, ${building.POBLACION || ''}`.trim();
 
-  // Helper fechas rápidas
   const addDaysToNextVisit = (days) => {
     const target = new Date();
     target.setDate(target.getDate() + days);
@@ -81,10 +78,6 @@ export default function RegistrarVisitaForm({
     
     setProximaVisita(`${year}-${month}-${day}`);
   };
-
-  // =========================================================================
-  // LÓGICA DE VOZ E INTELIGENCIA ARTIFICIAL (GEMINI + FALLBACK LOCAL)
-  // =========================================================================
 
   const startVoiceDictation = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -145,45 +138,42 @@ export default function RegistrarVisitaForm({
     }
   };
 
-  // Procesador IA Gemini + Motor de Respaldo Local Inteligente
   const processVoiceWithAI = async (textDictated) => {
     setIsAnalyzingAI(true);
     setAiStatusMsg('Analizando visita con IA... ⏳');
 
     let parsedResult = null;
 
-    // 1. Intentar procesamiento con Google Gemini API si hay Clave o Red
     if (geminiApiKey && navigator.onLine) {
       try {
         const prompt = `
-Eres un asistente de Inteligencia Artificial para un CRM de permisos de fibra óptica en fincas y edificios.
+Eres un asistente de IA para un CRM de permisos de fibra óptica.
 Analiza la siguiente transcripción dictada por un comercial en campo:
 "${textDictated}"
 
 INSTRUCCIONES CLAVE:
 1. Determina el resultado de la visita entre estas opciones exactas:
-   - "Concedido" (si aceptaron, firmaron, autorizaron, dieron visto bueno o mostraron conformidad).
+   - "Concedido" (si aceptaron, firmaron, autorizaron o dieron visto bueno).
    - "Denegado" (si rechazaron, se negaron, no quieren instalación o está prohibido).
-   - "Portal cerrado" (si la puerta o finca estaba cerrada sin acceso).
+   - "En gestión" (si la finca sigue en proceso).
+   - "Hablado con presidente" (si hablaron con el presidente).
+   - "Hablado con vecino" (si hablaron con un vecino).
+   - "Portal cerrado" (si la finca estaba cerrada).
    - "No localizado" (si no se encontró a nadie).
-   - "Hablado con vecino" (si conversaron con un vecino pero falta confirmación).
-   - "Hablado con presidente" (si hablaron con el presidente de la comunidad).
-   - "Pendiente documentación" (si faltan papeles o actas).
-   - "Pendiente llamada" (si acordaron llamar por teléfono).
+   - "Pendiente documentación" (si faltan papeles).
+   - "Pendiente llamada" (si acordaron llamar).
 
-2. Redacta un comentario profesional, técnico, conciso y limpio en español para el historial del CRM.
-   - Elimina muletillas ("ehh", "bueno", "pues nada").
-   - Escribe en tercera persona de forma profesional.
+2. Redacta un comentario profesional, técnico, conciso y limpio en español para el CRM.
 
-Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
+Responde ÚNICAMENTE en formato JSON:
 {
-  "estado": "Concedido" | "Denegado" | "Hablado con vecino" | "Hablado con presidente" | "Portal cerrado" | "No localizado" | "Pendiente documentación" | "Pendiente llamada",
+  "estado": "Concedido" | "Denegado" | "En gestión" | "Hablado con presidente" | "Hablado con vecino" | "Portal cerrado" | "No localizado" | "Pendiente documentación" | "Pendiente llamada",
   "comentario": "Texto profesional redactado"
 }
 `;
 
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiApiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -201,30 +191,30 @@ Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
           parsedResult = JSON.parse(jsonMatch[0]);
         }
       } catch (err) {
-        console.warn('Atención Gemini API, usando analizador inteligente local:', err);
+        console.warn('Usando analizador local inteligente:', err);
       }
     }
 
-    // 2. Motor de Análisis Inteligente Local (Garantiza que NUNCA falle sin cobertura)
     if (!parsedResult) {
       const lower = textDictated.toLowerCase();
+      let detectedEstado = 'En gestión';
 
-      let detectedEstado = 'Hablado con vecino';
-      if (/firmad|concedid|autoriz|aceptad|visto bueno|dejan instalar|conforme|permit/i.test(lower)) {
+      if (/firmad|concedid|autoriz|aceptad|visto bueno|dejan instalar|conforme/i.test(lower)) {
         detectedEstado = 'Concedido';
-      } else if (/denegad|rechazad|no quier|prohibid|negad|imposible|no dejan/i.test(lower)) {
+      } else if (/denegad|rechazad|no quier|prohibid|negad|imposible/i.test(lower)) {
         detectedEstado = 'Denegado';
-      } else if (/cerrad|puerta|sin acceso/i.test(lower)) {
-        detectedEstado = 'Portal cerrado';
       } else if (/presidente|presidenta/i.test(lower)) {
         detectedEstado = 'Hablado con presidente';
-      } else if (/no contesta|nadie|no hay nadie|vacia/i.test(lower)) {
+      } else if (/vecino|vecina/i.test(lower)) {
+        detectedEstado = 'Hablado con vecino';
+      } else if (/cerrad|puerta|sin acceso/i.test(lower)) {
+        detectedEstado = 'Portal cerrado';
+      } else if (/no contesta|nadie|no hay nadie/i.test(lower)) {
         detectedEstado = 'No localizado';
       } else if (/llamar|telefono|llame/i.test(lower)) {
         detectedEstado = 'Pendiente llamada';
       }
 
-      // Limpieza de muletillas
       let cleanComment = textDictated
         .replace(/^(bueno|pues|eh|em|nada)\s+/gui, '')
         .replace(/\b(eh|em|bueno|nada)\b/gui, '')
@@ -241,7 +231,6 @@ Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
       };
     }
 
-    // 3. Actualización Automática de los Campos de la Interfaz
     if (parsedResult) {
       if (parsedResult.estado) {
         setResultado(parsedResult.estado);
@@ -260,11 +249,12 @@ Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
   };
 
   // =========================================================================
-
+  // SUBMIT CON SEPARACIÓN ESTRICTA DE ESTADO Y COMENTARIO
+  // =========================================================================
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!resultado) {
-      setFormError('Por favor, selecciona un resultado para la visita.');
+      setFormError('Por favor, selecciona una opción para la visita.');
       return;
     }
 
@@ -278,7 +268,31 @@ Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
         formattedNextDate = `${day}/${month}/${year}`;
       }
 
-      await onSave(gescal, resultado, comentario.trim(), formattedNextDate);
+      // 1. ESTADO OFICIAL DEL EDIFICIO (Solo CONCEDIDO, DENEGADO o EN GESTION)
+      let estadoOficialEdificio = 'EN GESTION';
+      if (resultado === 'Concedido') {
+        estadoOficialEdificio = 'CONCEDIDO';
+      } else if (resultado === 'Denegado') {
+        estadoOficialEdificio = 'DENEGADO';
+      } else {
+        estadoOficialEdificio = 'EN GESTION';
+      }
+
+      // 2. COMENTARIO DEL EDIFICIO (Columna K)
+      let comentarioFinal = comentario.trim();
+      
+      // Si el usuario no escribió comentario manual, usamos la opción seleccionada como comentario
+      if (!comentarioFinal) {
+        comentarioFinal = resultado; // Ej: "Hablado con presidente", "Portal cerrado", "No localizado", etc.
+      } else if (resultado !== 'Concedido' && resultado !== 'Denegado' && resultado !== 'En gestión') {
+        // Si escribió texto y además eligió "Hablado con presidente", lo prefijamos limpiamente
+        if (!comentarioFinal.toLowerCase().includes(resultado.toLowerCase())) {
+          comentarioFinal = `[${resultado}] ${comentarioFinal}`;
+        }
+      }
+
+      // Guardar con Estado Oficial limpio y Comentario correcto
+      await onSave(gescal, estadoOficialEdificio, comentarioFinal, formattedNextDate);
       setSaving(false);
     } catch (err) {
       console.error(err);
@@ -314,7 +328,7 @@ Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
         </div>
       </div>
 
-      {/* BOTÓN ASISTENTE DE VOZ IA (GEMINI) */}
+      {/* BOTÓN ASISTENTE DE VOZ IA */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-md shadow-blue-500/10 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-bold uppercase tracking-wider text-blue-100 flex items-center">
@@ -325,7 +339,7 @@ Responde ÚNICAMENTE en formato JSON estricto con esta estructura:
         </div>
 
         <p className="text-xs text-blue-100 leading-relaxed">
-          Dicta la conversación de la visita. La IA seleccionará el estado (Concedido/Denegado/En Gestión) y redactará la nota.
+          Dicta la visita por voz. La IA seleccionará el estado y redactará las observaciones.
         </p>
 
         {isRecording ? (
