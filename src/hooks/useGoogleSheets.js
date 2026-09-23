@@ -2,7 +2,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { db } from '../services/db';
 
-// Helper para registrar la visita en la memoria permanente del día
 function registrarVisitaEnMemoriaDiaria(gescalId) {
   try {
     const todayStr = new Date().toLocaleDateString('es-ES');
@@ -15,7 +14,6 @@ function registrarVisitaEnMemoriaDiaria(gescalId) {
         idsSet = new Set(JSON.parse(rawIds));
       }
     } else {
-      // Nuevo día: reiniciar lista
       localStorage.setItem('huella_daily_counter_date', todayStr);
     }
 
@@ -58,7 +56,7 @@ export function useGoogleSheets() {
     }
   }, []);
 
-  const sendVisitaToSheets = useCallback(async (visita) => {
+  const sendVisitaToSheets = useCallback(async (visita, comentarioAcumulado = '') => {
     if (!scriptUrl) throw new Error('No Apps Script URL configured');
     
     const payload = {
@@ -68,7 +66,7 @@ export function useGoogleSheets() {
       hoja: 'VISITAS',
       sheetName: 'VISITAS',
       updateEdificio: true,
-      columnaK: visita.Comentario || '',
+      columnaK: comentarioAcumulado || visita.Comentario || '',
       gescal: visita.GESCAL,
       GESCAL: visita.GESCAL,
       GESCAL26: visita.GESCAL,
@@ -76,8 +74,8 @@ export function useGoogleSheets() {
       Resultado: visita.Resultado,
       comentario: visita.Comentario || '',
       Comentario: visita.Comentario || '',
-      COMENTARIO: visita.Comentario || '',
-      comentarios: visita.Comentario || '',
+      COMENTARIO: comentarioAcumulado || visita.Comentario || '',
+      comentarios: comentarioAcumulado || visita.Comentario || '',
       proximaVisita: visita['Próxima visita'] || '',
       'Próxima visita': visita['Próxima visita'] || '',
       fecha: visita.Fecha,
@@ -186,7 +184,7 @@ export function useGoogleSheets() {
     }
   }, [scriptUrl, loadLocalData, syncPendingVisitas]);
 
-  // REGISTRO DE VISITA CON BLINDAJE DE MEMORIA PERMANENTE
+  // REGISTRO DE VISITA CON HISTORIAL ACUMULATIVO DE COMENTARIOS
   const registrarVisita = async (gescal, resultado, comentario, proximaVisita) => {
     const now = new Date();
     
@@ -194,33 +192,43 @@ export function useGoogleSheets() {
     const monthStr = String(now.getMonth() + 1).padStart(2, '0');
     const yearStr = String(now.getFullYear());
     const fecha = `${dayStr}/${monthStr}/${yearStr}`;
+    const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     
-    const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const comentarioLimpio = String(comentario || '').trim();
-    
+
+    // 1. OBTENER Y CONCATENAR COMENTARIOS ANTERIORES PARA NO PERDER NADA
+    const edificioActual = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === String(gescal));
+    const comentarioPrevio = String(edificioActual?.COMENTARIO || edificioActual?.Comentario || '').trim();
+
+    const notaConFecha = `[${fecha} ${hora}] ${comentarioLimpio || resultado}`;
+    let comentarioAcumuladoFinal = notaConFecha;
+
+    if (comentarioPrevio && comentarioPrevio !== 'no localizo a nadie' && !comentarioPrevio.includes(comentarioLimpio)) {
+      comentarioAcumuladoFinal = `${notaConFecha}\n---\n${comentarioPrevio}`;
+    }
+
     const nuevaVisita = {
       Fecha: fecha,
       Hora: hora,
       GESCAL: gescal,
       Resultado: resultado,
-      Comentario: comentarioLimpio,
+      Comentario: comentarioLimpio || resultado,
       'Próxima visita': proximaVisita || '',
       sincronizado: false
     };
     
     try {
-      // 1. Guardar de inmediato en la memoria permanente del día (NUNCA BAJA A 0)
       registrarVisitaEnMemoriaDiaria(gescal);
 
-      // 2. Guardar en base de datos local
+      // Guardar visita en IndexedDB y actualizar Columna K con el Historial Acumulado
       const savedVisitaObj = await db.addVisita(nuevaVisita);
-      await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioLimpio);
+      await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioAcumuladoFinal);
       await loadLocalData();
       
-      // 3. Enviar a Google Sheets
+      // Enviar a Google Sheets
       if (navigator.onLine && scriptUrl) {
         try {
-          await sendVisitaToSheets(savedVisitaObj);
+          await sendVisitaToSheets(savedVisitaObj, comentarioAcumuladoFinal);
           
           const syncedVisitaObj = { ...savedVisitaObj };
           delete syncedVisitaObj.sincronizado;
@@ -236,7 +244,7 @@ export function useGoogleSheets() {
           
           await loadLocalData();
         } catch (e) {
-          console.warn('Sincronización inmediata fallida, se enviará automáticamente online:', e);
+          console.warn('Sincronización inmediata fallida, se enviará online:', e);
         }
       }
       
