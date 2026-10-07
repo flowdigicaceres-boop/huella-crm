@@ -39,24 +39,32 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO AUTÓNOMO DE VISITAS
+  // CÁLCULO ESTRICTO DE VISITAS REALIZADAS HOY
   const visitasHoyStats = useMemo(() => {
-    const mapaVisitas = {};
+    const todayStr = new Date().toLocaleDateString('es-ES');
+    const storedDate = localStorage.getItem('huella_daily_counter_date');
+    let idsHoy = new Set();
 
-    (visitas || []).forEach(v => {
-      const g = String(v.GESCAL || v.gescal || '').trim();
-      if (g) mapaVisitas[g] = v.Resultado || v.resultado || '';
-    });
-
-    (edificios || []).forEach(b => {
-      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
-      const g = String(b.GESCAL26 || b.GESCAL || '').trim();
-      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
-
-      if (g && !mapaVisitas[g]) {
-        if ((ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) || (coment && coment.length > 3 && coment !== 'no localizo a nadie')) {
-          mapaVisitas[g] = b['ESTADO IC'] || '';
+    if (storedDate === todayStr) {
+      try {
+        const rawIds = localStorage.getItem('huella_daily_visited_ids');
+        if (rawIds) {
+          idsHoy = new Set(JSON.parse(rawIds));
         }
+      } catch (e) {}
+    }
+
+    // Sumar visitas añadidas en la sesión de hoy
+    (visitas || []).forEach(v => {
+      const f = String(v.Fecha || v.fecha || '').trim();
+      const now = new Date();
+      const d = String(now.getDate()).padStart(2, '0');
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const y = String(now.getFullYear());
+      
+      if (f.includes(`${d}/${m}/${y}`) || f.includes(`${now.getDate()}/${now.getMonth() + 1}/${y}`)) {
+        const g = String(v.GESCAL || v.gescal || '').trim();
+        if (g) idsHoy.add(g);
       }
     });
 
@@ -64,15 +72,16 @@ export default function Dashboard({
     let denegadosHoy = 0;
     let enGestionHoy = 0;
 
-    Object.values(mapaVisitas).forEach((resultado) => {
-      const r = String(resultado || '').toLowerCase();
-      if (r.includes('concedido')) concedidosHoy++;
-      else if (r.includes('denegado')) denegadosHoy++;
+    idsHoy.forEach(gescalId => {
+      const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL).trim() === String(gescalId).trim());
+      const st = String(b?.['ESTADO IC'] || '').toLowerCase();
+      if (st.includes('concedido')) concedidosHoy++;
+      else if (st.includes('denegado')) denegadosHoy++;
       else enGestionHoy++;
     });
 
     return {
-      totalHoy: Object.keys(mapaVisitas).length,
+      totalHoy: idsHoy.size,
       concedidosHoy,
       denegadosHoy,
       enGestionHoy
@@ -154,7 +163,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* TARJETA NARANJA CLIQUEABLE: NAVEGA A JORNADA */}
+      {/* TARJETA NARANJA SINCRONIZADA CON EL MARCADOR DE HOY */}
       <div 
         onClick={() => setCurrentTab('jornada')}
         className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3 cursor-pointer active:scale-98 transition"

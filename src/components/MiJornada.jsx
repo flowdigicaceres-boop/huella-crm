@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { db } from '../services/db';
 
-// Helper de Población autónomo
 function getPoblacionEdificio(e) {
   if (!e) return 'Cáceres';
   const rawPob = e['POBLACION'] ?? e['Población'] ?? e['Poblacion'] ?? e['MUNICIPIO'] ?? e['LOCALIDAD'] ?? '';
@@ -88,45 +87,46 @@ export default function MiJornada({
     }
   };
 
-  // REPORTE DE VISITAS REALIZADAS: Carga todas las visitas registradas en la app
+  // REPORTE EXCLUSIVO DE VISITAS DE HOY
   const visitasRealizadasReporte = useMemo(() => {
-    const list = [];
-    const seenGescals = new Set();
+    const todayStr = new Date().toLocaleDateString('es-ES');
+    const storedDate = localStorage.getItem('huella_daily_counter_date');
+    let idsHoy = new Set();
 
-    // 1. Cargar desde la lista de visitas
+    if (storedDate === todayStr) {
+      try {
+        const rawIds = localStorage.getItem('huella_daily_visited_ids');
+        if (rawIds) {
+          idsHoy = new Set(JSON.parse(rawIds));
+        }
+      } catch (e) {}
+    }
+
     (visitas || []).forEach(v => {
-      const g = String(v.GESCAL || v.gescal || '').trim();
-      if (g && !seenGescals.has(g)) {
-        seenGescals.add(g);
-        const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === g);
-        list.push({
-          gescal: g,
-          resultado: v.Resultado || v.resultado || b?.['ESTADO IC'] || 'En gestión',
-          comentario: v.Comentario || v.comentario || b?.['COMENTARIO'] || 'Sin comentarios adicionales',
-          hora: v.Hora || v.hora || '',
-          edificio: b
-        });
+      const f = String(v.Fecha || v.fecha || '').trim();
+      const now = new Date();
+      const d = String(now.getDate()).padStart(2, '0');
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const y = String(now.getFullYear());
+      
+      if (f.includes(`${d}/${m}/${y}`) || f.includes(`${now.getDate()}/${now.getMonth() + 1}/${y}`)) {
+        const g = String(v.GESCAL || v.gescal || '').trim();
+        if (g) idsHoy.add(g);
       }
     });
 
-    // 2. Cargar desde edificios que tengan última visita registrada
-    (edificios || []).forEach(b => {
-      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
-      const g = String(b.GESCAL26 || b.GESCAL || '').trim();
-      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
+    const list = [];
+    idsHoy.forEach(gescalId => {
+      const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL).trim() === String(gescalId).trim());
+      const v = (visitas || []).find(x => String(x.GESCAL || x.gescal).trim() === String(gescalId).trim());
 
-      if (g && !seenGescals.has(g)) {
-        if ((ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) || (coment && coment.length > 3 && coment !== 'no localizo a nadie')) {
-          seenGescals.add(g);
-          list.push({
-            gescal: g,
-            resultado: b['ESTADO IC'] || 'En gestión',
-            comentario: coment || 'Sin comentarios adicionales',
-            hora: '',
-            edificio: b
-          });
-        }
-      }
+      list.push({
+        gescal: String(gescalId),
+        resultado: v?.Resultado || v?.resultado || b?.['ESTADO IC'] || 'En gestión',
+        comentario: v?.Comentario || v?.comentario || b?.['COMENTARIO'] || 'Sin comentarios adicionales',
+        hora: v?.Hora || v?.hora || '',
+        edificio: b
+      });
     });
 
     return list;
@@ -241,9 +241,7 @@ export default function MiJornada({
         </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* SECCIÓN PRINCIPAL: REPORTE DE VISITAS CON BOTONES DE COPIADO */}
-      {/* ========================================================================= */}
+      {/* REPORTE DE VISITAS REALIZADAS HOY */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-md space-y-2">
         <div className="flex items-center space-x-2">
           <ClipboardList size={22} className="text-blue-200" />
@@ -258,7 +256,7 @@ export default function MiJornada({
 
       {visitasRealizadasReporte.length === 0 ? (
         <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center text-slate-400 text-xs shadow-sm">
-          No hay visitas registradas todavía. Al registrar visitas en los edificios aparecerán aquí con sus botones de copiado.
+          No hay visitas registradas todavía hoy. Al registrar visitas en los edificios aparecerán aquí con sus botones de copiado.
         </div>
       ) : (
         <div className="space-y-3">
@@ -277,7 +275,6 @@ export default function MiJornada({
                 key={item.gescal || idx}
                 className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3"
               >
-                {/* Cabecera de la Visita */}
                 <div className="flex items-start justify-between border-b border-slate-100 pb-2.5">
                   <div className="space-y-0.5 max-w-[70%]">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -296,7 +293,6 @@ export default function MiJornada({
                   </span>
                 </div>
 
-                {/* Observación / Comentario */}
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
                   <span className="text-[10px] font-bold text-slate-400 uppercase flex items-center">
                     <MessageSquare size={11} className="mr-1 text-blue-500" />
@@ -307,7 +303,6 @@ export default function MiJornada({
                   </p>
                 </div>
 
-                {/* BOTONES DE COPIADO RÁPIDO */}
                 <div className="grid grid-cols-3 gap-2 pt-1">
                   <button
                     type="button"
