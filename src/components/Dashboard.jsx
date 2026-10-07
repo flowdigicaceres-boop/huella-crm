@@ -16,7 +16,6 @@ import {
   Target,
   ChevronRight
 } from 'lucide-react';
-import { isVisitFromToday } from './Layout';
 
 export default function Dashboard({ 
   edificios = [], 
@@ -40,23 +39,23 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
+  // CÁLCULO AUTÓNOMO DE VISITAS
   const visitasHoyStats = useMemo(() => {
     const mapaVisitas = {};
 
     (visitas || []).forEach(v => {
-      const f = v.Fecha || v.fecha;
-      if (isVisitFromToday(f)) {
-        const g = v.GESCAL || v.gescal;
-        if (g) mapaVisitas[String(g)] = v.Resultado || v.resultado || '';
-      }
+      const g = String(v.GESCAL || v.gescal || '').trim();
+      if (g) mapaVisitas[g] = v.Resultado || v.resultado || '';
     });
 
     (edificios || []).forEach(b => {
-      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
-      if (isVisitFromToday(ult)) {
-        const g = b.GESCAL26 || b.GESCAL;
-        if (g && !mapaVisitas[String(g)]) {
-          mapaVisitas[String(g)] = b['ESTADO IC'] || '';
+      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
+      const g = String(b.GESCAL26 || b.GESCAL || '').trim();
+      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
+
+      if (g && !mapaVisitas[g]) {
+        if ((ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) || (coment && coment.length > 3 && coment !== 'no localizo a nadie')) {
+          mapaVisitas[g] = b['ESTADO IC'] || '';
         }
       }
     });
@@ -124,7 +123,7 @@ export default function Dashboard({
   }, [visitas]);
 
   const findBuildingName = (gescal) => {
-    const b = edificios.find(e => String(e.GESCAL26) === String(gescal));
+    const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === String(gescal));
     if (!b) return 'Edificio Desconocido';
     const tipo = b['TIPO-VIA'] || '';
     const nombre = b['NOMBRE-VIA'] || '';
@@ -155,7 +154,7 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY (TOCA PARA VER EL REPORTE Y COPIAR) */}
+      {/* TARJETA NARANJA CLIQUEABLE: NAVEGA A JORNADA */}
       <div 
         onClick={() => setCurrentTab('jornada')}
         className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3 cursor-pointer active:scale-98 transition"

@@ -16,8 +16,15 @@ import {
   FileText
 } from 'lucide-react';
 import { db } from '../services/db';
-import { isVisitFromToday } from './Layout';
-import { resolvePoblacion } from './MapView';
+
+// Helper de Población autónomo
+function getPoblacionEdificio(e) {
+  if (!e) return 'Cáceres';
+  const rawPob = e['POBLACION'] ?? e['Población'] ?? e['Poblacion'] ?? e['MUNICIPIO'] ?? e['LOCALIDAD'] ?? '';
+  const strPob = String(rawPob).trim();
+  if (strPob) return strPob;
+  return 'Cáceres';
+}
 
 export default function MiJornada({ 
   edificios = [], 
@@ -73,7 +80,6 @@ export default function MiJornada({
     });
   }, []);
 
-  // COPIAR AL PORTAPAPELES CON FEEDBACK VISUAL
   const handleCopyText = (text, identifier) => {
     if (navigator.clipboard && text) {
       navigator.clipboard.writeText(text);
@@ -82,41 +88,44 @@ export default function MiJornada({
     }
   };
 
-  // LISTA COMPLETA DE VISITAS REALIZADAS HOY PARA REPORTE MANUAL
-  const visitasRealizadasHoy = useMemo(() => {
+  // REPORTE DE VISITAS REALIZADAS: Carga todas las visitas registradas en la app
+  const visitasRealizadasReporte = useMemo(() => {
     const list = [];
     const seenGescals = new Set();
 
+    // 1. Cargar desde la lista de visitas
     (visitas || []).forEach(v => {
-      const f = v.Fecha || v.fecha;
-      if (isVisitFromToday(f)) {
-        const g = String(v.GESCAL || v.gescal || '').trim();
-        if (g && !seenGescals.has(g)) {
-          seenGescals.add(g);
-          const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === g);
-          list.push({
-            gescal: g,
-            resultado: v.Resultado || v.resultado || b?.['ESTADO IC'] || 'En gestión',
-            comentario: v.Comentario || v.comentario || b?.['COMENTARIO'] || 'Sin comentarios adicionales',
-            hora: v.Hora || v.hora || '',
-            edificio: b
-          });
-        }
+      const g = String(v.GESCAL || v.gescal || '').trim();
+      if (g && !seenGescals.has(g)) {
+        seenGescals.add(g);
+        const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === g);
+        list.push({
+          gescal: g,
+          resultado: v.Resultado || v.resultado || b?.['ESTADO IC'] || 'En gestión',
+          comentario: v.Comentario || v.comentario || b?.['COMENTARIO'] || 'Sin comentarios adicionales',
+          hora: v.Hora || v.hora || '',
+          edificio: b
+        });
       }
     });
 
+    // 2. Cargar desde edificios que tengan última visita registrada
     (edificios || []).forEach(b => {
-      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
+      const ult = String(b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha || '').trim();
       const g = String(b.GESCAL26 || b.GESCAL || '').trim();
-      if (g && isVisitFromToday(ult) && !seenGescals.has(g)) {
-        seenGescals.add(g);
-        list.push({
-          gescal: g,
-          resultado: b['ESTADO IC'] || 'En gestión',
-          comentario: b['COMENTARIO'] || 'Sin comentarios adicionales',
-          hora: '',
-          edificio: b
-        });
+      const coment = String(b['COMENTARIO'] || b['Comentario'] || '').trim();
+
+      if (g && !seenGescals.has(g)) {
+        if ((ult && ult !== 'Sin visitas' && ult !== 'No agendada' && ult.length > 5) || (coment && coment.length > 3 && coment !== 'no localizo a nadie')) {
+          seenGescals.add(g);
+          list.push({
+            gescal: g,
+            resultado: b['ESTADO IC'] || 'En gestión',
+            comentario: coment || 'Sin comentarios adicionales',
+            hora: '',
+            edificio: b
+          });
+        }
       }
     });
 
@@ -233,34 +242,32 @@ export default function MiJornada({
       </div>
 
       {/* ========================================================================= */}
-      {/* SECCIÓN PRINCIPAL: REPORTE DE VISITAS DE HOY PARA COPIAR A MANO */}
+      {/* SECCIÓN PRINCIPAL: REPORTE DE VISITAS CON BOTONES DE COPIADO */}
       {/* ========================================================================= */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-md space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <ClipboardList size={20} className="text-blue-200" />
-            <h3 className="font-extrabold text-sm">
-              Reporte de Visitas Realizadas Hoy ({visitasRealizadasHoy.length})
-            </h3>
-          </div>
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-md space-y-2">
+        <div className="flex items-center space-x-2">
+          <ClipboardList size={22} className="text-blue-200" />
+          <h3 className="font-extrabold text-base">
+            Reporte de Visitas Realizadas ({visitasRealizadasReporte.length})
+          </h3>
         </div>
-        <p className="text-[11px] text-blue-100 leading-normal">
-          Usa los botones de copiado para pegar los Gescales, direcciones y observaciones directamente en el nuevo programa.
+        <p className="text-xs text-blue-100 leading-relaxed">
+          Toca los botones para copiar el Comentario, Gescal o la Dirección y pegarlos directamente en el nuevo programa.
         </p>
       </div>
 
-      {visitasRealizadasHoy.length === 0 ? (
+      {visitasRealizadasReporte.length === 0 ? (
         <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center text-slate-400 text-xs shadow-sm">
-          No hay visitas registradas todavía hoy. Al registrar visitas en los edificios aparecerán aquí con sus botones de copiado.
+          No hay visitas registradas todavía. Al registrar visitas en los edificios aparecerán aquí con sus botones de copiado.
         </div>
       ) : (
         <div className="space-y-3">
-          {visitasRealizadasHoy.map((item, idx) => {
+          {visitasRealizadasReporte.map((item, idx) => {
             const b = item.edificio;
             const tipo = String(b?.['TIPO-VIA'] || '').trim();
             const nom = String(b?.['NOMBRE-VIA'] || '').trim();
             const num = String(b?.['NUM'] || '').trim();
-            const pob = resolvePoblacion(b);
+            const pob = getPoblacionEdificio(b);
             const direccionCompleta = `${tipo} ${nom} ${num}, ${pob}`.trim();
 
             const textoTodoJunto = `GESCAL: ${item.gescal}\nDIRECCIÓN: ${direccionCompleta}\nESTADO: ${item.resultado}\nOBSERVACIONES: ${item.comentario}`;
@@ -279,7 +286,7 @@ export default function MiJornada({
                     <h4 className="font-bold text-slate-800 text-xs leading-snug">
                       {direccionCompleta || 'Dirección no especificada'}
                     </h4>
-                    <span className="text-[10px] text-slate-500 font-mono block">
+                    <span className="text-[10px] text-slate-500 font-mono block truncate">
                       {item.gescal}
                     </span>
                   </div>
@@ -342,7 +349,6 @@ export default function MiJornada({
                     type="button"
                     onClick={() => handleCopyText(textoTodoJunto, `todo_${idx}`)}
                     className="py-2 px-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold rounded-xl text-[11px] flex items-center justify-center space-x-1 transition border border-slate-200"
-                    title="Copiar Ficha Completa"
                   >
                     {copiedId === `todo_${idx}` ? (
                       <>
@@ -363,9 +369,7 @@ export default function MiJornada({
         </div>
       )}
 
-      {/* ========================================================================= */}
       {/* SECCIÓN EDIFICIOS CERCANOS */}
-      {/* ========================================================================= */}
       <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-slate-800 text-sm flex items-center">
@@ -417,7 +421,7 @@ export default function MiJornada({
                       A {formatDist(e.dist)}
                     </span>
                     <span className="truncate">{e['TOTALES '] || e['TOTALES'] || e['TOTALES (UUIs)'] || 0} UUIs</span>
-                    <span className="truncate">{resolvePoblacion(e)}</span>
+                    <span className="truncate">{getPoblacionEdificio(e)}</span>
                   </div>
                 </div>
                 <ChevronRight size={16} className="text-slate-400 shrink-0" />
@@ -457,7 +461,7 @@ export default function MiJornada({
                       Agendado: {e['PROXIMA-VISITA']}
                     </span>
                     <span className="truncate">{e['TOTALES '] || e['TOTALES'] || e['TOTALES (UUIs)'] || 0} UUIs</span>
-                    <span className="truncate">{resolvePoblacion(e)}</span>
+                    <span className="truncate">{getPoblacionEdificio(e)}</span>
                   </div>
                 </div>
                 <ChevronRight size={16} className="text-slate-400 shrink-0" />
