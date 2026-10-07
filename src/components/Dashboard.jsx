@@ -6,15 +6,17 @@ import {
   List, 
   Calendar, 
   BarChart3, 
-  Building,
-  CheckCircle,
-  Clock,
-  XCircle,
-  History,
-  CloudOff,
-  Flame,
-  Target
+  Building, 
+  CheckCircle, 
+  Clock, 
+  XCircle, 
+  History, 
+  CloudOff, 
+  Flame, 
+  Target,
+  ChevronRight
 } from 'lucide-react';
+import { isVisitFromToday } from './Layout';
 
 export default function Dashboard({ 
   edificios = [], 
@@ -38,48 +40,46 @@ export default function Dashboard({
     setCurrentTab('list');
   };
 
-  // CÁLCULO PERMANENTE DE VISITAS DE HOY
   const visitasHoyStats = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString('es-ES');
-    const storedDate = localStorage.getItem('huella_daily_counter_date');
-    let idsSet = new Set();
-
-    if (storedDate === todayStr) {
-      try {
-        const rawIds = localStorage.getItem('huella_daily_visited_ids');
-        if (rawIds) {
-          idsSet = new Set(JSON.parse(rawIds));
-        }
-      } catch (e) {}
-    }
+    const mapaVisitas = {};
 
     (visitas || []).forEach(v => {
-      const g = v.GESCAL || v.gescal;
-      if (g) idsSet.add(String(g).trim());
+      const f = v.Fecha || v.fecha;
+      if (isVisitFromToday(f)) {
+        const g = v.GESCAL || v.gescal;
+        if (g) mapaVisitas[String(g)] = v.Resultado || v.resultado || '';
+      }
+    });
+
+    (edificios || []).forEach(b => {
+      const ult = b['ULTIMA-VISITA'] || b['ULTIMA_VISITA'] || b.Fecha;
+      if (isVisitFromToday(ult)) {
+        const g = b.GESCAL26 || b.GESCAL;
+        if (g && !mapaVisitas[String(g)]) {
+          mapaVisitas[String(g)] = b['ESTADO IC'] || '';
+        }
+      }
     });
 
     let concedidosHoy = 0;
     let denegadosHoy = 0;
     let enGestionHoy = 0;
 
-    // Buscar estado de cada finca visitada hoy
-    idsSet.forEach(gescalId => {
-      const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === String(gescalId));
-      const st = String(b?.['ESTADO IC'] || '').toLowerCase();
-      if (st.includes('concedido')) concedidosHoy++;
-      else if (st.includes('denegado')) denegadosHoy++;
+    Object.values(mapaVisitas).forEach((resultado) => {
+      const r = String(resultado || '').toLowerCase();
+      if (r.includes('concedido')) concedidosHoy++;
+      else if (r.includes('denegado')) denegadosHoy++;
       else enGestionHoy++;
     });
 
     return {
-      totalHoy: idsSet.size,
+      totalHoy: Object.keys(mapaVisitas).length,
       concedidosHoy,
       denegadosHoy,
       enGestionHoy
     };
   }, [visitas, edificios]);
 
-  // Dynamic global statistics
   const stats = useMemo(() => {
     const total = edificios.length;
     let concedidos = 0;
@@ -155,8 +155,11 @@ export default function Dashboard({
         <Search className="absolute left-4 top-3.5 text-slate-400" size={18} />
       </form>
 
-      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY BLINDADO */}
-      <div className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3">
+      {/* WIDGET DESTACADO: CONTADOR DE VISITAS DE HOY (TOCA PARA VER EL REPORTE Y COPIAR) */}
+      <div 
+        onClick={() => setCurrentTab('jornada')}
+        className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-2xl p-4 shadow-md shadow-amber-500/10 space-y-3 cursor-pointer active:scale-98 transition"
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <div className="p-2 bg-white/20 rounded-xl">
@@ -164,8 +167,9 @@ export default function Dashboard({
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-amber-100 block">Jornada de Trabajo</span>
-              <h3 className="text-lg font-extrabold leading-none">
-                {visitasHoyStats.totalHoy} Visitas Realizadas Hoy
+              <h3 className="text-lg font-extrabold leading-none flex items-center">
+                <span>{visitasHoyStats.totalHoy} Visitas Realizadas Hoy</span>
+                <ChevronRight size={16} className="ml-1 opacity-80" />
               </h3>
             </div>
           </div>
@@ -191,8 +195,8 @@ export default function Dashboard({
         {/* Barra de Progreso hacia Objetivo */}
         <div className="space-y-1 pt-1">
           <div className="flex justify-between text-[10px] font-bold text-amber-100">
-            <span>Objetivo estimado (20)</span>
-            <span>{objetivoPorcentaje}% completado</span>
+            <span>Objetivo estimado (20) &bull; Toca para ver reporte y copiar</span>
+            <span>{objetivoPorcentaje}%</span>
           </div>
           <div className="w-full h-2 bg-black/20 rounded-full overflow-hidden">
             <div 
@@ -203,7 +207,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Global Counters Widgets (Clickable) */}
+      {/* Global Counters Widgets */}
       <div className="grid grid-cols-3 gap-2.5">
         <button
           type="button"
@@ -277,7 +281,7 @@ export default function Dashboard({
             <Calendar size={22} />
           </div>
           <span className="font-bold text-slate-800 text-sm">Mi Jornada</span>
-          <span className="text-[11px] text-slate-400 mt-0.5 leading-snug">Agenda de hoy y cercanos</span>
+          <span className="text-[11px] text-slate-400 mt-0.5 leading-snug">Reporte de hoy y cercanos</span>
         </button>
 
         <button
@@ -304,7 +308,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Recent Visits (Activity Feed) */}
+      {/* Recent Visits */}
       <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
         <h3 className="font-bold text-slate-800 flex items-center text-sm">
           <History size={16} className="mr-2 text-slate-500" />

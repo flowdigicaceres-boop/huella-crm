@@ -84,6 +84,7 @@ function App() {
         return (
           <MiJornada
             edificios={edificios}
+            visitas={visitas}
             setSelectedBuildingGescal={handleSelectBuilding}
             setCurrentTab={handleTabChange}
           />
