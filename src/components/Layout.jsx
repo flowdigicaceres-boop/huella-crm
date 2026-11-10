@@ -1,5 +1,6 @@
 // src/components/Layout.jsx
 import React, { useState, useMemo } from 'react';
+import { normalizarFecha, hoyDDMMYYYY } from '../utils/fechas';
 import { 
   Home, 
   Map as MapIcon, 
@@ -31,10 +32,17 @@ export default function Layout({
 }) {
   const [showSettings, setShowSettings] = useState(!scriptUrl);
   const [tempUrl, setTempUrl] = useState(scriptUrl);
+  const [tempGeminiKey, setTempGeminiKey] = useState(() => localStorage.getItem('huella_gemini_api_key') || '');
+  const [tempGeminiModel, setTempGeminiModel] = useState(() => localStorage.getItem('huella_gemini_model') || '');
 
   const handleSaveSettings = (e) => {
     e.preventDefault();
     saveScriptUrl(tempUrl);
+    try {
+      localStorage.setItem('huella_gemini_api_key', tempGeminiKey.trim());
+      if (tempGeminiModel.trim()) localStorage.setItem('huella_gemini_model', tempGeminiModel.trim());
+      else localStorage.removeItem('huella_gemini_model');
+    } catch (err) {}
     setShowSettings(false);
     fetchData(true);
   };
@@ -48,7 +56,11 @@ export default function Layout({
   };
 
   const handleClearCacheAndReload = () => {
-    if (window.confirm('¿Deseas vaciar la memoria caché del móvil y volver a descargar la base de datos limpia?')) {
+    const pendientes = (visitas || []).filter(v => v.sincronizado === false).length;
+    const aviso = pendientes > 0
+      ? `ATENCIÓN: hay ${pendientes} visita(s) sin sincronizar que se PERDERÁN. Pulsa Cancelar y sincroniza antes.\n\n¿Vaciar la caché igualmente?`
+      : '¿Deseas vaciar la memoria caché del móvil y volver a descargar la base de datos limpia?';
+    if (window.confirm(aviso)) {
       try {
         indexedDB.deleteDatabase('HuellaCRM_DB');
         localStorage.clear();
@@ -79,10 +91,11 @@ export default function Layout({
       localStorage.setItem('huella_daily_visited_ids', JSON.stringify([]));
     }
 
-    // 2. Sumar visitas añadidas en la sesión
+    // 2. Sumar las visitas de HOY (el historial completo de la hoja no cuenta)
+    const hoy = hoyDDMMYYYY();
     (visitas || []).forEach(v => {
       const g = v.GESCAL || v.gescal;
-      if (g) idsSet.add(String(g).trim());
+      if (g && normalizarFecha(v.Fecha || v.fecha) === hoy) idsSet.add(String(g).trim());
     });
 
     return idsSet.size;
@@ -265,6 +278,27 @@ export default function Layout({
                   onChange={(e) => setTempUrl(e.target.value)}
                   className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono transition"
                   required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  Clave de Gemini (dictado por voz, opcional)
+                </label>
+                <input
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Sin clave se usa el analizador local"
+                  value={tempGeminiKey}
+                  onChange={(e) => setTempGeminiKey(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono transition"
+                />
+                <input
+                  type="text"
+                  placeholder="Modelo (vacío = gemini-2.5-flash)"
+                  value={tempGeminiModel}
+                  onChange={(e) => setTempGeminiModel(e.target.value)}
+                  className="mt-2 w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono transition"
                 />
               </div>
 

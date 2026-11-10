@@ -16,6 +16,7 @@ import {
   FileText
 } from 'lucide-react';
 import { db } from '../services/db';
+import { normalizarFecha, hoyDDMMYYYY, marcaDeTiempo } from '../utils/fechas';
 
 function getPoblacionEdificio(e) {
   if (!e) return 'Cáceres';
@@ -118,7 +119,10 @@ export default function MiJornada({
     const list = [];
     idsHoy.forEach(gescalId => {
       const b = edificios.find(e => String(e.GESCAL26 || e.GESCAL).trim() === String(gescalId).trim());
-      const v = (visitas || []).find(x => String(x.GESCAL || x.gescal).trim() === String(gescalId).trim());
+      // La visita de HOY más reciente de este edificio (no la primera que aparezca en el historial)
+      const v = (visitas || [])
+        .filter(x => String(x.GESCAL || x.gescal).trim() === String(gescalId).trim() && normalizarFecha(x.Fecha || x.fecha) === hoyDDMMYYYY())
+        .sort((a, c) => marcaDeTiempo(c.Fecha, c.Hora) - marcaDeTiempo(a.Fecha, a.Hora))[0];
 
       list.push({
         gescal: String(gescalId),

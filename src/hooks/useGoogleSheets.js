@@ -56,42 +56,35 @@ export function useGoogleSheets() {
     }
   }, []);
 
-  const sendVisitaToSheets = useCallback(async (visita, comentarioAcumulado = '') => {
+  const sendVisitaToSheets = useCallback(async (visita) => {
     if (!scriptUrl) throw new Error('No Apps Script URL configured');
-    
+
     const payload = {
-      action: 'addVisita',
-      type: 'visita',
-      tab: 'VISITAS',
-      hoja: 'VISITAS',
-      sheetName: 'VISITAS',
-      updateEdificio: true,
-      columnaK: comentarioAcumulado || visita.Comentario || '',
       gescal: visita.GESCAL,
-      GESCAL: visita.GESCAL,
-      GESCAL26: visita.GESCAL,
       resultado: visita.Resultado,
-      Resultado: visita.Resultado,
       comentario: visita.Comentario || '',
-      Comentario: visita.Comentario || '',
-      COMENTARIO: comentarioAcumulado || visita.Comentario || '',
-      comentarios: comentarioAcumulado || visita.Comentario || '',
       proximaVisita: visita['Próxima visita'] || '',
-      'Próxima visita': visita['Próxima visita'] || '',
       fecha: visita.Fecha,
-      Fecha: visita.Fecha,
-      hora: visita.Hora,
-      Hora: visita.Hora
+      hora: visita.Hora
     };
 
-    await fetch(scriptUrl, {
+    // Sin 'no-cors' para poder leer la respuesta: la visita solo se da por
+    // sincronizada si el Apps Script confirma que la ha guardado.
+    const response = await fetch(scriptUrl, {
       method: 'POST',
-      mode: 'no-cors', 
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
+
+    let result = null;
+    try {
+      result = await response.json();
+    } catch (e) {
+      throw new Error('Respuesta ilegible del servidor');
+    }
+    if (!result || result.success !== true) {
+      throw new Error((result && result.error) || 'El servidor no confirmó el guardado');
+    }
 
     return true;
   }, [scriptUrl]);
@@ -162,8 +155,11 @@ export function useGoogleSheets() {
       const data = await response.json();
       if (data && data.success) {
         await db.saveEdificios(data.edificios);
-        await db.saveVisitas(data.visitas);
-        
+        // Si la hoja no devuelve visitas no se borra el historial que ya hay en el móvil
+        if (Array.isArray(data.visitas) && data.visitas.length > 0) {
+          await db.saveVisitas(data.visitas);
+        }
+
         await loadLocalData();
         await syncPendingVisitas();
         setError(null);
@@ -196,17 +192,8 @@ export function useGoogleSheets() {
     
     const comentarioLimpio = String(comentario || '').trim();
 
-    // 1. OBTENER Y CONCATENAR COMENTARIOS ANTERIORES PARA NO PERDER NADA
-    const edificioActual = edificios.find(e => String(e.GESCAL26 || e.GESCAL) === String(gescal));
-    const comentarioPrevio = String(edificioActual?.COMENTARIO || edificioActual?.Comentario || '').trim();
-
-    const notaConFecha = `[${fecha} ${hora}] ${comentarioLimpio || resultado}`;
-    let comentarioAcumuladoFinal = notaConFecha;
-
-    if (comentarioPrevio && comentarioPrevio !== 'no localizo a nadie' && !comentarioPrevio.includes(comentarioLimpio)) {
-      comentarioAcumuladoFinal = `${notaConFecha}\n---\n${comentarioPrevio}`;
-    }
-
+    // El historial de la finca se construye con las visitas (hoja VISITAS);
+    // COMENTARIO del edificio guarda solo el último comentario, igual que hace el Apps Script.
     const nuevaVisita = {
       Fecha: fecha,
       Hora: hora,
@@ -220,15 +207,15 @@ export function useGoogleSheets() {
     try {
       registrarVisitaEnMemoriaDiaria(gescal);
 
-      // Guardar visita en IndexedDB y actualizar Columna K con el Historial Acumulado
+      // Guardar visita en IndexedDB y actualizar el edificio con el último comentario
       const savedVisitaObj = await db.addVisita(nuevaVisita);
-      await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', comentarioAcumuladoFinal);
+      await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', nuevaVisita.Comentario);
       await loadLocalData();
       
       // Enviar a Google Sheets
       if (navigator.onLine && scriptUrl) {
         try {
-          await sendVisitaToSheets(savedVisitaObj, comentarioAcumuladoFinal);
+          await sendVisitaToSheets(savedVisitaObj);
           
           const syncedVisitaObj = { ...savedVisitaObj };
           delete syncedVisitaObj.sincronizado;

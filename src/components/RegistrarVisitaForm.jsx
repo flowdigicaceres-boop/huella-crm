@@ -13,19 +13,16 @@ import {
   Sparkles,
   Loader
 } from 'lucide-react';
+import { analizarDictadoLocal } from '../utils/dictado';
 
 const RESULT_OPTIONS = [
   { id: 'Concedido', label: '🟢 Concedido', color: 'border-emerald-200 text-emerald-800 bg-emerald-50 active:bg-emerald-200 font-bold' },
   { id: 'Denegado', label: '🔴 Denegado', color: 'border-rose-200 text-rose-800 bg-rose-50 active:bg-rose-200 font-bold' },
-  { id: 'En gestión', label: '🟡 En gestión', color: 'border-amber-200 text-amber-800 bg-amber-50 active:bg-amber-200 font-bold' },
-  { id: 'Hablado con presidente', label: '👑 Hablado con presidente', color: 'border-indigo-100 text-indigo-800 bg-indigo-50/50 active:bg-indigo-200' },
-  { id: 'Hablado con vecino', label: '👥 Hablado con vecino', color: 'border-blue-100 text-blue-800 bg-blue-50/50 active:bg-blue-200' },
-  { id: 'Portal cerrado', label: '🚪 Portal cerrado', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' },
-  { id: 'No localizado', label: '❓ No localizado', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' },
-  { id: 'Pendiente doc.', label: '📄 Pendiente doc.', color: 'border-amber-100 text-amber-800 bg-amber-50/50 active:bg-amber-200' },
-  { id: 'Pendiente llamada', label: '📞 Pendiente llamada', color: 'border-orange-100 text-orange-800 bg-orange-50/50 active:bg-orange-200' },
-  { id: 'Otro', label: '⚙️ Otro', color: 'border-slate-200 text-slate-700 bg-slate-50 active:bg-slate-200' }
+  { id: 'En gestión', label: '🟡 En gestión', color: 'border-amber-200 text-amber-800 bg-amber-50 active:bg-amber-200 font-bold' }
 ];
+
+// Modelo de Gemini para el dictado. Se puede cambiar desde Ajustes sin tocar el código.
+const GEMINI_MODEL_POR_DEFECTO = 'gemini-2.5-flash';
 
 export default function RegistrarVisitaForm({ 
   gescal, 
@@ -45,6 +42,7 @@ export default function RegistrarVisitaForm({
   const recognitionRef = useRef(null);
 
   const geminiApiKey = localStorage.getItem('huella_gemini_api_key') || '';
+  const geminiModel = localStorage.getItem('huella_gemini_model') || GEMINI_MODEL_POR_DEFECTO;
 
   const building = edificios.find(e => String(e.GESCAL26) === String(gescal));
 
@@ -143,8 +141,14 @@ export default function RegistrarVisitaForm({
     setAiStatusMsg('Analizando visita con IA... ⏳');
 
     let parsedResult = null;
+    let usoIA = false;
+    let motivoSinIA = '';
 
-    if (geminiApiKey && navigator.onLine) {
+    if (!geminiApiKey) {
+      motivoSinIA = 'sin clave de IA en Ajustes';
+    } else if (!navigator.onLine) {
+      motivoSinIA = 'sin conexión';
+    } else {
       try {
         const prompt = `
 Eres un asistente de IA para un CRM de permisos de fibra óptica.
@@ -152,28 +156,23 @@ Analiza la siguiente transcripción dictada por un comercial en campo:
 "${textDictated}"
 
 INSTRUCCIONES CLAVE:
-1. Determina el resultado de la visita entre estas opciones exactas:
-   - "Concedido" (si aceptaron, firmaron, autorizaron o dieron visto bueno).
-   - "Denegado" (si rechazaron, se negaron, no quieren instalación o está prohibido).
-   - "En gestión" (si la finca sigue en proceso).
-   - "Hablado con presidente" (si hablaron con el presidente).
-   - "Hablado con vecino" (si hablaron con un vecino).
-   - "Portal cerrado" (si la finca estaba cerrada).
-   - "No localizado" (si no se encontró a nadie).
-   - "Pendiente documentación" (si faltan papeles).
-   - "Pendiente llamada" (si acordaron llamar).
+1. Determina el estado de la finca entre estas tres opciones exactas:
+   - "Concedido" (SOLO si ya han firmado o autorizado de forma clara; "no han firmado" o "van a firmar" NO es concedido).
+   - "Denegado" (si rechazaron o se negaron de forma clara).
+   - "En gestión" (en cualquier otro caso: no localizado, portal cerrado, hablado con presidente o vecino, faltan papeles, hay que volver a llamar...).
 
 2. Redacta un comentario profesional, técnico, conciso y limpio en español para el CRM.
+   Conserva los datos útiles (con quién se habló, qué hay que hacer, teléfonos, fechas).
 
 Responde ÚNICAMENTE en formato JSON:
 {
-  "estado": "Concedido" | "Denegado" | "En gestión" | "Hablado con presidente" | "Hablado con vecino" | "Portal cerrado" | "No localizado" | "Pendiente documentación" | "Pendiente llamada",
+  "estado": "Concedido" | "Denegado" | "En gestión",
   "comentario": "Texto profesional redactado"
 }
 `;
 
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel)}:generateContent?key=${geminiApiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -183,52 +182,32 @@ Responde ÚNICAMENTE en formato JSON:
           }
         );
 
-        const data = await response.json();
-        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        
-        if (jsonMatch) {
-          parsedResult = JSON.parse(jsonMatch[0]);
+        if (!response.ok) {
+          motivoSinIA = `la IA respondió con error ${response.status}`;
+        } else {
+          const data = await response.json();
+          const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            parsedResult = JSON.parse(jsonMatch[0]);
+            usoIA = true;
+          } else {
+            motivoSinIA = 'la IA no devolvió un resultado válido';
+          }
         }
       } catch (err) {
-        console.warn('Usando analizador local inteligente:', err);
+        console.warn('Fallo al llamar a la IA:', err);
+        motivoSinIA = 'no se pudo contactar con la IA';
       }
     }
 
+    // Solo hay tres estados; cualquier otro valor se trata como "En gestión"
+    if (parsedResult && !RESULT_OPTIONS.some(o => o.id === parsedResult.estado)) {
+      parsedResult.estado = 'En gestión';
+    }
+
     if (!parsedResult) {
-      const lower = textDictated.toLowerCase();
-      let detectedEstado = 'En gestión';
-
-      if (/firmad|concedid|autoriz|aceptad|visto bueno|dejan instalar|conforme/i.test(lower)) {
-        detectedEstado = 'Concedido';
-      } else if (/denegad|rechazad|no quier|prohibid|negad|imposible/i.test(lower)) {
-        detectedEstado = 'Denegado';
-      } else if (/presidente|presidenta/i.test(lower)) {
-        detectedEstado = 'Hablado con presidente';
-      } else if (/vecino|vecina/i.test(lower)) {
-        detectedEstado = 'Hablado con vecino';
-      } else if (/cerrad|puerta|sin acceso/i.test(lower)) {
-        detectedEstado = 'Portal cerrado';
-      } else if (/no contesta|nadie|no hay nadie/i.test(lower)) {
-        detectedEstado = 'No localizado';
-      } else if (/llamar|telefono|llame/i.test(lower)) {
-        detectedEstado = 'Pendiente llamada';
-      }
-
-      let cleanComment = textDictated
-        .replace(/^(bueno|pues|eh|em|nada)\s+/gui, '')
-        .replace(/\b(eh|em|bueno|nada)\b/gui, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (cleanComment.length > 0) {
-        cleanComment = cleanComment.charAt(0).toUpperCase() + cleanComment.slice(1);
-      }
-
-      parsedResult = {
-        estado: detectedEstado,
-        comentario: cleanComment
-      };
+      parsedResult = analizarDictadoLocal(textDictated);
     }
 
     if (parsedResult) {
@@ -244,8 +223,12 @@ Responde ÚNICAMENTE en formato JSON:
     }
 
     setIsAnalyzingAI(false);
-    setAiStatusMsg('✨ Visita analizada y autocompletada por IA');
-    setTimeout(() => setAiStatusMsg(''), 4000);
+    setAiStatusMsg(
+      usoIA
+        ? `✨ Analizada con IA: ${parsedResult.estado}. Revísala antes de guardar`
+        : `Analizador local (${motivoSinIA}): ${parsedResult.estado}. Revísalo antes de guardar`
+    );
+    setTimeout(() => setAiStatusMsg(''), 8000);
   };
 
   // =========================================================================
@@ -279,17 +262,8 @@ Responde ÚNICAMENTE en formato JSON:
       }
 
       // 2. COMENTARIO DEL EDIFICIO (Columna K)
-      let comentarioFinal = comentario.trim();
-      
-      // Si el usuario no escribió comentario manual, usamos la opción seleccionada como comentario
-      if (!comentarioFinal) {
-        comentarioFinal = resultado; // Ej: "Hablado con presidente", "Portal cerrado", "No localizado", etc.
-      } else if (resultado !== 'Concedido' && resultado !== 'Denegado' && resultado !== 'En gestión') {
-        // Si escribió texto y además eligió "Hablado con presidente", lo prefijamos limpiamente
-        if (!comentarioFinal.toLowerCase().includes(resultado.toLowerCase())) {
-          comentarioFinal = `[${resultado}] ${comentarioFinal}`;
-        }
-      }
+      // Si no escribió comentario, se usa el nombre del estado elegido
+      const comentarioFinal = comentario.trim() || resultado;
 
       // Guardar con Estado Oficial limpio y Comentario correcto
       await onSave(gescal, estadoOficialEdificio, comentarioFinal, formattedNextDate);

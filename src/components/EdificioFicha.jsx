@@ -124,11 +124,18 @@ export default function EdificioFicha({
 
   const colors = getStatusColor(building['ESTADO IC']);
 
-  // Parser del historial de comentarios acumulados
-  const comentariosHistorial = (building.COMENTARIO || '')
-    .split('---')
-    .map(c => c.trim())
-    .filter(c => c.length > 0 && c !== 'no localizo a nadie');
+  // Historial: un comentario por visita, la más reciente primero. Si la hoja aún no tiene
+  // visitas de este edificio se usa COMENTARIO (puede traer notas antiguas separadas por ---).
+  const comentariosDeVisitas = buildingVisits
+    .filter(v => String(v.Comentario || '').trim())
+    .map(v => `[${v.Fecha}${v.Hora ? ' ' + v.Hora : ''}] ${String(v.Comentario).trim()}`);
+
+  const comentariosHistorial = comentariosDeVisitas.length > 0
+    ? comentariosDeVisitas
+    : String(building.COMENTARIO || '')
+        .split('---')
+        .map(c => c.trim())
+        .filter(c => c.length > 0 && c !== 'no localizo a nadie');
 
   return (
     <div className="space-y-5 pb-8">

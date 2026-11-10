@@ -1,4 +1,5 @@
 // src/services/db.js
+import { normalizarEdificio, normalizarVisita } from '../utils/fechas';
 
 const DB_NAME = 'HuellaCRM_DB';
 const DB_VERSION = 1;
@@ -93,7 +94,7 @@ export const db = {
       edificios.forEach((edificio) => {
         if (edificio && edificio.GESCAL26) {
           const gescalKey = String(edificio.GESCAL26);
-          storeEdificios.put(edificio);
+          storeEdificios.put(normalizarEdificio(edificio));
 
           const coords = extractCoordinatesFromBuilding(edificio);
           if (coords) {
@@ -156,14 +157,22 @@ export const db = {
       
       store.clear();
 
+      const claveVisita = (v) => `${String(v.GESCAL).trim()}|${v.Fecha}|${String(v.Hora || '').trim()}`;
+      const clavesPendientes = new Set(pendientesSincronizar.map((v) => claveVisita(normalizarVisita(v))));
+
       visitasNuevas.forEach((visita) => {
-        const copy = { ...visita };
+        const copy = normalizarVisita(visita);
         delete copy.id;
+        // Si esa visita sigue pendiente en este móvil, se conserva solo la copia local
+        if (clavesPendientes.has(claveVisita(copy))) return;
         store.add(copy);
       });
 
+      // Sin conservar el id antiguo: un id repetido pisaría una visita descargada de la hoja
       pendientesSincronizar.forEach((visitaPendiente) => {
-        store.put(visitaPendiente);
+        const copy = { ...visitaPendiente };
+        delete copy.id;
+        store.add(copy);
       });
 
       tx.oncomplete = () => resolve();
