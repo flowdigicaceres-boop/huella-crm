@@ -1,6 +1,7 @@
 // src/hooks/useGoogleSheets.js
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { db } from '../services/db';
+import { construirPons } from '../utils/pons';
 
 function registrarVisitaEnMemoriaDiaria(gescalId) {
   try {
@@ -28,6 +29,9 @@ function registrarVisitaEnMemoriaDiaria(gescalId) {
 export function useGoogleSheets() {
   const [edificios, setEdificios] = useState([]);
   const [visitas, setVisitas] = useState([]);
+  const [web, setWeb] = useState(null);
+  const [webGuardado, setWebGuardado] = useState(null);
+  const [webError, setWebError] = useState('');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState(null);
@@ -47,8 +51,13 @@ export function useGoogleSheets() {
     try {
       const localEdificios = await db.getEdificios();
       const localVisitas = await db.getVisitas();
+      const localWeb = await db.getWeb();
       setEdificios(localEdificios || []);
       setVisitas(localVisitas || []);
+      if (localWeb && localWeb.web) {
+        setWeb(localWeb.web);
+        setWebGuardado(localWeb.guardado || null);
+      }
       return { edificios: localEdificios, visitas: localVisitas };
     } catch (e) {
       console.error('Error cargando datos locales:', e);
@@ -67,6 +76,8 @@ export function useGoogleSheets() {
       fecha: visita.Fecha,
       hora: visita.Hora
     };
+    // Edificio que viene de la descarga web y aún no está en la hoja: el servidor lo da de alta
+    if (visita.edificioNuevo) payload.edificio = visita.edificioNuevo;
 
     // Sin 'no-cors' para poder leer la respuesta: la visita solo se da por
     // sincronizada si el Apps Script confirma que la ha guardado.
@@ -159,6 +170,9 @@ export function useGoogleSheets() {
         if (Array.isArray(data.visitas) && data.visitas.length > 0) {
           await db.saveVisitas(data.visitas);
         }
+        // Descarga web: si la hoja no la trae (pestaña WEB ausente o con error) se conserva la última guardada
+        setWebError(data.webError || '');
+        if (data.web) await db.saveWeb(data.web);
 
         await loadLocalData();
         await syncPendingVisitas();
@@ -203,12 +217,29 @@ export function useGoogleSheets() {
       'Próxima visita': proximaVisita || '',
       sincronizado: false
     };
-    
+
+    // Primera visita a un edificio que solo está en la descarga web: se da de alta en el CRM
+    const edificioWeb = (pons?.edificiosSoloWeb || []).find(e => String(e.GESCAL26) === String(gescal));
+    if (edificioWeb) {
+      const { 'ESTADO WEB': _estadoWeb, _soloWeb, ...datosFijos } = edificioWeb;
+      nuevaVisita.edificioNuevo = {
+        POBLACION: datosFijos.POBLACION,
+        'TIPO-VIA': datosFijos['TIPO-VIA'],
+        'NOMBRE-VIA': datosFijos['NOMBRE-VIA'],
+        NUM: datosFijos.NUM,
+        'ZONA-GPON': datosFijos['ZONA-GPON'],
+        TOTALES: datosFijos.TOTALES,
+        'TIPO-DE-PERMISO': datosFijos['TIPO-DE-PERMISO'],
+        CLIENTES: datosFijos.CLIENTES
+      };
+    }
+
     try {
       registrarVisitaEnMemoriaDiaria(gescal);
 
       // Guardar visita en IndexedDB y actualizar el edificio con el último comentario
       const savedVisitaObj = await db.addVisita(nuevaVisita);
+      if (edificioWeb) await db.upsertEdificio(edificioWeb);
       await db.updateEdificioEstado(gescal, resultado, fecha, proximaVisita || '', nuevaVisita.Comentario);
       await loadLocalData();
       
@@ -242,6 +273,15 @@ export function useGoogleSheets() {
     }
   };
 
+  // Cruce de la descarga web con el CRM, agrupado por PON (se recalcula con cada dato nuevo)
+  const pons = useMemo(() => construirPons(web, edificios), [web, edificios]);
+
+  // Edificios del CRM + los que solo están en la web (para abrir su ficha y registrar visitas)
+  const edificiosConWeb = useMemo(
+    () => (pons ? [...edificios, ...pons.edificiosSoloWeb] : edificios),
+    [edificios, pons]
+  );
+
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -264,6 +304,10 @@ export function useGoogleSheets() {
 
   return {
     edificios,
+    edificiosConWeb,
+    pons,
+    webError,
+    webGuardado,
     visitas,
     loading,
     syncing,

@@ -6,13 +6,19 @@ import Dashboard from './components/Dashboard';
 import EdificiosLista from './components/EdificiosLista';
 import EdificioFicha from './components/EdificioFicha';
 import RegistrarVisitaForm from './components/RegistrarVisitaForm';
-import MapView from './components/MapView';
+import MapaTab from './components/MapaTab';
+import PonesLista from './components/PonesLista';
+import PonDetalle from './components/PonDetalle';
 import MiJornada from './components/MiJornada';
 import Estadisticas from './components/Estadisticas';
 
 function App() {
   const {
     edificios,
+    edificiosConWeb,
+    pons,
+    webError,
+    webGuardado,
     visitas,
     loading,
     syncing,
@@ -35,6 +41,16 @@ function App() {
       setPreviousTab(currentTab);
     }
     setCurrentTab(tab);
+  };
+
+  // PON abierto desde la lista o desde el mapa; "volver" regresa a donde se abrió
+  const [selectedPonId, setSelectedPonId] = useState(null);
+  const [ponBackTab, setPonBackTab] = useState('pons');
+
+  const handleSelectPon = (ponId) => {
+    setSelectedPonId(ponId);
+    setPonBackTab(currentTab === 'map' ? 'map' : 'pons');
+    setCurrentTab('pon-detail');
   };
 
   const handleSelectBuilding = (gescal) => {
@@ -74,10 +90,30 @@ function App() {
         );
       case 'map':
         return (
-          <MapView
+          <MapaTab
             edificios={edificios}
+            pons={pons}
+            webError={webError}
             setSelectedBuildingGescal={handleSelectBuilding}
             setCurrentTab={handleTabChange}
+            onSelectPon={handleSelectPon}
+          />
+        );
+      case 'pons':
+        return (
+          <PonesLista
+            pons={pons}
+            webError={webError}
+            webGuardado={webGuardado}
+            onSelectPon={handleSelectPon}
+          />
+        );
+      case 'pon-detail':
+        return (
+          <PonDetalle
+            pon={pons?.pons.find((p) => p.id === selectedPonId) || null}
+            onBack={() => setCurrentTab(ponBackTab)}
+            onSelectBuilding={handleSelectBuilding}
           />
         );
       case 'jornada':
@@ -100,7 +136,7 @@ function App() {
         return (
           <EdificioFicha
             gescal={selectedBuildingGescal}
-            edificios={edificios}
+            edificios={edificiosConWeb}
             visitas={visitas}
             onBack={() => setCurrentTab(previousTab)}
             onRegisterVisitClick={() => handleTabChange('register-visit')}
@@ -110,7 +146,7 @@ function App() {
         return (
           <RegistrarVisitaForm
             gescal={selectedBuildingGescal}
-            edificios={edificios}
+            edificios={edificiosConWeb}
             onSave={handleRegisterVisitSave}
             onCancel={() => setCurrentTab('detail')}
           />

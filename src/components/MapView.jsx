@@ -89,7 +89,7 @@ function getOrganicOffset(gescalKey) {
 }
 
 // MOTOR ESRI ARCGIS + PHOTON
-async function geocodeFastRealStreet(b) {
+export async function geocodeFastRealStreet(b) {
   const poblacion = resolvePoblacion(b);
   const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
   const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();

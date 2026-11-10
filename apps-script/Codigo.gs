@@ -43,6 +43,74 @@ function normalizarEstado_(r) {
   return '';
 }
 
+// ---------------------------------------------------------------------------
+// Pestaña WEB: la descarga diaria de la web (DESCARGA_PROYECTOS) pegada tal cual,
+// con su fila de cabeceras. Se devuelve solo lo que la app necesita:
+//  - filas: edificios cuyo ESTADO-DE-PERMISO no es CONCEDIDO
+//  - pons: un resumen por ZONA-GPON con TODOS los edificios (total y concedidos)
+// ---------------------------------------------------------------------------
+var WEB_CAMPOS = ['GESCAL26', 'POBLACION', 'TIPO-VIA', 'NOMBRE-VIA', 'NUM', 'ZONA-GPON', 'TOTALES',
+                  'TIPO-DE-PERMISO', 'ESTADO-DE-PERMISO', 'CLIENTES', 'FASE', 'DENSIDAD',
+                  'AVANCE_FASE', 'OBJETIVO_HORA'];
+
+function valorWeb_(v, campo, tz) {
+  if (v instanceof Date) return campo === 'NOMBRE-VIA' ? fechaComoNombreVia_(v, tz) : fmtFecha_(v, tz);
+  return v;
+}
+
+function leerWeb_(ss, tz) {
+  var sh = ss.getSheetByName('WEB');
+  if (!sh) return { web: null, error: 'No existe la pestaña WEB' };
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return { web: null, error: 'La pestaña WEB está vacía' };
+
+  var vals = sh.getRange(1, 1, lastRow, sh.getLastColumn()).getValues();
+  var idx = {};
+  for (var c = 0; c < vals[0].length; c++) {
+    var h = String(vals[0][c]).trim().toUpperCase();
+    if (h === 'GESCAL') h = 'GESCAL26';
+    if (h) idx[h] = c;
+  }
+  var faltan = ['GESCAL26', 'ZONA-GPON', 'ESTADO-DE-PERMISO'].filter(function (k) { return idx[k] === undefined; });
+  if (faltan.length) return { web: null, error: 'Faltan columnas en WEB: ' + faltan.join(', ') };
+
+  var filas = [];
+  var pons = {};
+  for (var i = 1; i < vals.length; i++) {
+    var row = vals[i];
+    var gescal = String(row[idx['GESCAL26']]).trim();
+    if (!gescal) continue;
+    var pon = String(row[idx['ZONA-GPON']] || '').trim();
+    var estado = String(row[idx['ESTADO-DE-PERMISO']] || '').trim();
+    var p = pons[pon];
+    if (!p) {
+      p = pons[pon] = {
+        pon: pon,
+        poblacion: idx['POBLACION'] !== undefined ? row[idx['POBLACION']] : '',
+        densidad: idx['DENSIDAD'] !== undefined ? row[idx['DENSIDAD']] : '',
+        fase: idx['FASE'] !== undefined ? row[idx['FASE']] : '',
+        avance: idx['AVANCE_FASE'] !== undefined ? row[idx['AVANCE_FASE']] : '',
+        objetivo: idx['OBJETIVO_HORA'] !== undefined ? row[idx['OBJETIVO_HORA']] : '',
+        total: 0,
+        concedidos: 0
+      };
+    }
+    p.total++;
+    if (estado.toUpperCase() === 'CONCEDIDO') { p.concedidos++; continue; }
+
+    var obj = {};
+    for (var k = 0; k < WEB_CAMPOS.length; k++) {
+      var campo = WEB_CAMPOS[k];
+      if (idx[campo] !== undefined) obj[campo] = valorWeb_(row[idx[campo]], campo, tz);
+    }
+    filas.push(obj);
+  }
+
+  var lista = [];
+  for (var nombre in pons) lista.push(pons[nombre]);
+  return { web: { filas: filas, pons: lista }, error: '' };
+}
+
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -101,7 +169,21 @@ function doGet(e) {
       }
     }
 
-    return json_({ success: true, edificios: edificiosData, visitas: visitasData });
+    // 3. WEB: un fallo aquí no debe impedir descargar edificios y visitas
+    var resultadoWeb = { web: null, error: '' };
+    try {
+      resultadoWeb = leerWeb_(ss, tz);
+    } catch (errWeb) {
+      resultadoWeb = { web: null, error: String(errWeb.message) };
+    }
+
+    return json_({
+      success: true,
+      edificios: edificiosData,
+      visitas: visitasData,
+      web: resultadoWeb.web,
+      webError: resultadoWeb.error
+    });
   } catch (err) {
     return json_({ success: false, error: err.message });
   }
@@ -170,17 +252,34 @@ function doPost(e) {
         if (h === 'PROXIMA-VISITA') proximaCol = c + 1;
         if (h === 'COMENTARIO') comentarioCol = c + 1;
       }
-      if (gescalCol > 0 && lastRowE > 1) {
-        var gescales = sheetEdificios.getRange(2, gescalCol, lastRowE - 1, 1).getValues();
-        for (var i = 0; i < gescales.length; i++) {
-          if (String(gescales[i][0]).trim() === gescal) {
-            var rowNum = i + 2;
-            if (estadoCol > 0 && estado) sheetEdificios.getRange(rowNum, estadoCol).setValue(estado);
-            if (ultimaCol > 0) sheetEdificios.getRange(rowNum, ultimaCol).setValue(fecha);
-            if (proximaCol > 0) sheetEdificios.getRange(rowNum, proximaCol).setValue(proximaVisita);
-            if (comentarioCol > 0 && comentario) sheetEdificios.getRange(rowNum, comentarioCol).setValue(comentario);
-            break;
+      if (gescalCol > 0) {
+        var rowNum = 0;
+        if (lastRowE > 1) {
+          var gescales = sheetEdificios.getRange(2, gescalCol, lastRowE - 1, 1).getValues();
+          for (var i = 0; i < gescales.length; i++) {
+            if (String(gescales[i][0]).trim() === gescal) { rowNum = i + 2; break; }
           }
+        }
+
+        // Edificio que viene de la descarga web y aún no está en el CRM: se da de alta
+        if (rowNum === 0 && data.edificio) {
+          var nuevo = new Array(lastColE);
+          for (var n = 0; n < nuevo.length; n++) nuevo[n] = '';
+          var origen = data.edificio;
+          for (var col = 0; col < headers.length; col++) {
+            var nombreCol = String(headers[col]).trim();
+            if (nombreCol === 'GESCAL26' || nombreCol === 'GESCAL') nuevo[col] = gescal;
+            else if (origen[nombreCol] !== undefined && origen[nombreCol] !== null) nuevo[col] = origen[nombreCol];
+          }
+          sheetEdificios.appendRow(nuevo);
+          rowNum = sheetEdificios.getLastRow();
+        }
+
+        if (rowNum > 0) {
+          if (estadoCol > 0 && estado) sheetEdificios.getRange(rowNum, estadoCol).setValue(estado);
+          if (ultimaCol > 0) sheetEdificios.getRange(rowNum, ultimaCol).setValue(fecha);
+          if (proximaCol > 0) sheetEdificios.getRange(rowNum, proximaCol).setValue(proximaVisita);
+          if (comentarioCol > 0 && comentario) sheetEdificios.getRange(rowNum, comentarioCol).setValue(comentario);
         }
       }
     }

@@ -14,6 +14,23 @@ si el servidor no lo confirma, y el v2 evita duplicados si una visita se reenví
 Nota: el `google-apps-script.js` de la raíz del proyecto es una versión antigua y no se ha tocado.
 El código que debes pegar en tu hoja es `apps-script/Codigo.gs`.
 
+## Pestaña WEB (capa de PON) — rutina diaria
+
+La app agrupa por PON cruzando la descarga de la web con tu CRM. Para que funcione:
+
+1. **Una sola vez:** en tu hoja de Google crea una pestaña llamada exactamente `WEB`.
+2. **Cada día:** abre la descarga de la web (la hoja con las columnas `PROVINCIA … OBJETIVO_HORA`), selecciona todo
+   (`Ctrl+A`), copia (`Ctrl+C`), ve a la pestaña `WEB`, borra su contenido y pega en la celda `A1`.
+   Debe incluir la fila de cabeceras. Las columnas que necesita la app son `GESCAL26`, `ZONA-GPON`
+   y `ESTADO-DE-PERMISO` (obligatorias) y `POBLACION`, `TIPO-VIA`, `NOMBRE-VIA`, `NUM`, `TOTALES`,
+   `TIPO-DE-PERMISO`, `CLIENTES`, `FASE`, `DENSIDAD`, `AVANCE_FASE` y `OBJETIVO_HORA`.
+3. En el móvil, pulsa sincronizar. Los PONs, el objetivo hora y lo que queda por gestionar se recalculan solos.
+
+Si falta la pestaña o le faltan columnas, la app lo dice en pantalla y sigue usando la última descarga guardada.
+
+Cuando registras la primera visita de un edificio que está en la web pero todavía no en tu CRM, el servidor lo da de
+alta como una fila nueva en `EDIFICIOS` (con población, vía, número, PON, UUIs, tipo de permiso y clientes).
+
 ## Compatibilidad con `bot.py`
 
 - Mismas claves: `success`, `edificios`, `visitas`.

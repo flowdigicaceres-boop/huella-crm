@@ -13,7 +13,8 @@ import {
   WifiOff, 
   X,
   Trash2,
-  Flame
+  Flame,
+  Radio
 } from 'lucide-react';
 
 export default function Layout({ 
@@ -215,6 +216,17 @@ export default function Layout({
         >
           <List size={20} className={isEdificiosActive ? 'scale-110' : ''} />
           <span className="text-[10px] mt-1">Edificios</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setCurrentTab('pons')}
+          className={`flex flex-col items-center flex-1 py-1 transition ${
+            currentTab === 'pons' || currentTab === 'pon-detail' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <Radio size={20} className={currentTab === 'pons' || currentTab === 'pon-detail' ? 'scale-110' : ''} />
+          <span className="text-[10px] mt-1">PONs</span>
         </button>
 
         <button

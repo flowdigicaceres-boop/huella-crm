@@ -2,7 +2,7 @@
 import { normalizarEdificio, normalizarVisita } from '../utils/fechas';
 
 const DB_NAME = 'HuellaCRM_DB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbInstance = null;
 
@@ -39,6 +39,11 @@ export const initDB = () => {
       
       if (!db.objectStoreNames.contains('geocodes')) {
         db.createObjectStore('geocodes', { keyPath: 'GESCAL26' });
+      }
+
+      // v2: datos de la descarga web (PONs) y otros datos sueltos
+      if (!db.objectStoreNames.contains('meta')) {
+        db.createObjectStore('meta', { keyPath: 'k' });
       }
     };
   });
@@ -103,6 +108,39 @@ export const db = {
         }
       });
 
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  /** Guarda la descarga web (filas por gestionar + resumen de PONs) para trabajar sin conexión. */
+  async saveWeb(web) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put({ k: 'web', web, guardado: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  async getWeb() {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction('meta', 'readonly').objectStore('meta').get('web');
+      request.onsuccess = () => resolve(request.result || null);
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  /** Alta local de un edificio que viene de la web y todavía no está en el CRM. */
+  async upsertEdificio(edificio) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('edificios', 'readwrite');
+      const copia = { ...normalizarEdificio(edificio) };
+      delete copia._soloWeb;
+      tx.objectStore('edificios').put(copia);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
