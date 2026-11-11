@@ -244,10 +244,10 @@ export default function Layout({
           type="button"
           onClick={() => setCurrentTab('jornada')}
           className={`flex flex-col items-center flex-1 py-1 transition ${
-            currentTab === 'jornada' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+            currentTab === 'jornada' || currentTab === 'propuesta' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
           }`}
         >
-          <Calendar size={20} className={currentTab === 'jornada' ? 'scale-110' : ''} />
+          <Calendar size={20} className={currentTab === 'jornada' || currentTab === 'propuesta' ? 'scale-110' : ''} />
           <span className="text-[10px] mt-1">Jornada</span>
         </button>
 

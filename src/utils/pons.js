@@ -198,7 +198,7 @@ function mediana(valores) {
   return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
 }
 
-function distanciaKm(lat1, lon1, lat2, lon2) {
+export function distanciaKm(lat1, lon1, lat2, lon2) {
   const r = Math.PI / 180;
   const dLat = (lat2 - lat1) * r;
   const dLon = (lon2 - lon1) * r;

@@ -13,7 +13,8 @@ import {
   CheckCheck,
   ClipboardList,
   MessageSquare,
-  FileText
+  FileText,
+  Sparkles
 } from 'lucide-react';
 import { db } from '../services/db';
 import { normalizarFecha, hoyDDMMYYYY, marcaDeTiempo } from '../utils/fechas';
@@ -29,8 +30,9 @@ function getPoblacionEdificio(e) {
 export default function MiJornada({ 
   edificios = [], 
   visitas = [], 
-  setSelectedBuildingGescal, 
-  setCurrentTab 
+  setSelectedBuildingGescal,
+  setCurrentTab,
+  onProponer
 }) {
   const [userLocation, setUserLocation] = useState(null);
   const [geocodes, setGeocodes] = useState({});
@@ -244,6 +246,23 @@ export default function MiJornada({
           <Calendar size={22} />
         </div>
       </div>
+
+      {/* PROPUESTA DEL DÍA POR PON */}
+      {onProponer && (
+        <button
+          type="button"
+          onClick={onProponer}
+          className="w-full bg-white border border-blue-100 rounded-2xl p-4 shadow-sm flex items-center justify-between active:scale-95 transition"
+        >
+          <div className="text-left pr-3">
+            <span className="block text-sm font-bold text-blue-700">Proponer día</span>
+            <span className="block text-[11px] text-slate-500 leading-snug mt-0.5">
+              Elige la población y te sugiero unas 20 visitas por PON, cercanas entre sí y con las horas recomendadas.
+            </span>
+          </div>
+          <Sparkles size={22} className="text-blue-600 shrink-0" />
+        </button>
+      )}
 
       {/* REPORTE DE VISITAS REALIZADAS HOY */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-md space-y-2">
