@@ -1,6 +1,6 @@
 // src/components/PonesLista.jsx
 import React, { useMemo, useState } from 'react';
-import { Search, ChevronRight, Filter, Upload, Layers, Radio } from 'lucide-react';
+import { Search, ChevronRight, Filter, Upload, Layers, Radio, KeyRound, AlertTriangle } from 'lucide-react';
 import { ordenarPons } from '../utils/pons';
 import { ChipObjetivo, MensajeSinWeb, esFinalizado, formatoAvance, usePonFiltros } from './ponUi';
 
@@ -13,6 +13,7 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
   const [busqueda, setBusqueda] = useState('');
   const [orden, setOrden] = useState('objetivo');
   const [soloPendientes, setSoloPendientes] = useState(false);
+  const [aviso, setAviso] = useState('');   // '', 'cumplidas' o 'llaves'
 
   const poblaciones = useMemo(() => {
     const set = new Set();
@@ -25,16 +26,18 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
     const q = normalizar(busqueda);
     return pons.pons
       .filter((p) => p.gestionablesN > 0 || (soloPendientes && p.pendientesSubirN > 0))
-      .filter((p) => verFinalizados || !esFinalizado(p))
+      .filter((p) => verFinalizados || !esFinalizado(p) || p.llavesN > 0)   // con llaves siempre se ve
       .filter((p) => poblacion === 'todos' || p.poblacion === poblacion)
       .filter((p) => !soloPendientes || p.pendientesSubirN > 0)
+      .filter((p) => aviso !== 'cumplidas' || p.cumplidasN > 0)
+      .filter((p) => aviso !== 'llaves' || p.llavesN > 0)
       .filter((p) => !q || normalizar(p.nombre).includes(q) || normalizar(p.poblacion).includes(q))
       .sort(ordenarPons(orden));
-  }, [pons, busqueda, poblacion, verFinalizados, soloPendientes, orden]);
+  }, [pons, busqueda, poblacion, verFinalizados, soloPendientes, orden, aviso]);
 
   const finalizadosOcultos = useMemo(() => {
     if (!pons || verFinalizados) return 0;
-    return pons.pons.filter((p) => p.gestionablesN > 0 && esFinalizado(p)).length;
+    return pons.pons.filter((p) => p.gestionablesN > 0 && esFinalizado(p) && p.llavesN === 0).length;
   }, [pons, verFinalizados]);
 
   if (!pons) return <MensajeSinWeb webError={webError} />;
@@ -98,6 +101,31 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
           </button>
         </div>
 
+        {pons.resumen.llaves > 0 && (
+          <button
+            type="button"
+            onClick={() => setAviso(aviso === 'llaves' ? '' : 'llaves')}
+            className={`w-full text-left text-xs font-bold rounded-xl px-3 py-2 flex items-center border ${
+              aviso === 'llaves' ? 'bg-rose-600 text-white border-rose-600' : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}
+          >
+            <KeyRound size={14} className="mr-2 shrink-0" />
+            {pons.resumen.llaves} {pons.resumen.llaves === 1 ? 'edificio con fecha' : 'edificios con fecha'} de entrega de llaves: visitar sí o sí
+          </button>
+        )}
+        {pons.resumen.cumplidas > 0 && (
+          <button
+            type="button"
+            onClick={() => setAviso(aviso === 'cumplidas' ? '' : 'cumplidas')}
+            className={`w-full text-left text-xs font-bold rounded-xl px-3 py-2 flex items-center border ${
+              aviso === 'cumplidas' ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}
+          >
+            <AlertTriangle size={14} className="mr-2 shrink-0" />
+            {pons.resumen.cumplidas} edificios con fecha CUMPLIDA (más de 100 días sin contactar)
+          </button>
+        )}
+
         <div className="flex items-center justify-between text-xs px-1">
           <span className="font-semibold text-slate-500">
             {visibles.length} PONs · {totalEdificios} edificios · {totalUuis} UUIs
@@ -160,6 +188,17 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
                     <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded flex items-center">
                       <Upload size={9} className="mr-0.5" />
                       {p.pendientesSubirN}
+                    </span>
+                  )}
+                  {p.llavesN > 0 && (
+                    <span className="text-[10px] font-bold text-white bg-rose-600 px-1.5 py-0.5 rounded flex items-center">
+                      <KeyRound size={9} className="mr-0.5" />
+                      Llaves
+                    </span>
+                  )}
+                  {p.cumplidasN > 0 && (
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded">
+                      {p.cumplidasN} cumpl.
                     </span>
                   )}
                 </div>

@@ -20,10 +20,13 @@ function iconoPon(pon, seleccionado) {
   const insignia = pon.pendientesSubirN > 0
     ? `<div style="position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;padding:0 3px;border-radius:9999px;background:#f59e0b;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center">${pon.pendientesSubirN}</div>`
     : '';
+  const llaves = pon.llavesN > 0
+    ? `<div style="position:absolute;bottom:-5px;right:-5px;min-width:17px;height:17px;padding:0 3px;border-radius:9999px;background:#e11d48;border:2px solid #fff;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center">&#128273;</div>`
+    : '';
   return L.divIcon({
     className: 'bg-transparent border-none',
     html: `<div style="position:relative;width:${tam}px;height:${tam}px">
-      <div style="width:100%;height:100%;border-radius:9999px;background:${pon.tramo.color};border:3px solid #fff;box-shadow:${aro};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:${fuente}px">${n}</div>${insignia}</div>`,
+      <div style="width:100%;height:100%;border-radius:9999px;background:${pon.tramo.color};border:3px solid #fff;box-shadow:${aro};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:${fuente}px">${n}</div>${insignia}${llaves}</div>`,
     iconSize: [tam, tam],
     iconAnchor: [tam / 2, tam / 2]
   });
@@ -78,7 +81,7 @@ export default function MapaPons({ pons, webError, onSelectPon }) {
     if (!pons) return [];
     return pons.pons
       .filter((p) => p.gestionablesN > 0)
-      .filter((p) => verFinalizados || !esFinalizado(p))
+      .filter((p) => verFinalizados || !esFinalizado(p) || p.llavesN > 0)
       .filter((p) => poblacion === 'todos' || p.poblacion === poblacion);
   }, [pons, poblacion, verFinalizados]);
 

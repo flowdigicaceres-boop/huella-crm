@@ -1,8 +1,8 @@
 // src/components/PonDetalle.jsx
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Navigation, Layers, Users, Upload, Copy, CheckCheck, ChevronRight, Calendar, MapPin } from 'lucide-react';
+import { ArrowLeft, Navigation, Layers, Users, Upload, Copy, CheckCheck, ChevronRight, Calendar, MapPin, KeyRound, AlertTriangle } from 'lucide-react';
 import { db } from '../services/db';
-import { centroDePon } from '../utils/pons';
+import { centroDePon, estaCumplida, DIAS_AVISO_LLAVES } from '../utils/pons';
 import { ChipObjetivo, formatoAvance } from './ponUi';
 
 function direccion(e) {
@@ -110,7 +110,9 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
         </div>
 
         <p className="text-[11px] text-slate-400">
-          {pon.totalEdificios} edificios en el PON · {pon.concedidosWeb} ya concedidos en la web
+          {pon.concedidosWeb > 0
+            ? `${pon.totalEdificios} edificios en el PON · ${pon.concedidosWeb} ya concedidos en la web`
+            : `${pon.totalEdificios} edificios pendientes en la web`}
         </p>
 
         <button
@@ -144,7 +146,27 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
               <div className="flex items-center flex-wrap gap-1.5">
                 {chipEstado(`Web: ${e['ESTADO WEB'] || '—'}`, e['ESTADO WEB'] === 'DENEGADO' ? 'rojo' : 'gris')}
                 {estadoCrm(e)}
+                {estaCumplida(e) && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 flex items-center">
+                    <AlertTriangle size={9} className="mr-1" />
+                    CUMPLIDA
+                  </span>
+                )}
+                {e.llaves && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center text-white ${
+                    e.llaves.dias <= DIAS_AVISO_LLAVES ? 'bg-rose-600' : 'bg-rose-500'
+                  }`}>
+                    <KeyRound size={9} className="mr-1" />
+                    LLAVES
+                  </span>
+                )}
               </div>
+              {e.llaves && (
+                <p className="text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-100 rounded-lg px-2 py-1">
+                  Entrega de llaves: {e.llaves.fecha}. Gestionar antes del {e.llaves.limite}{' '}
+                  ({e.llaves.dias >= 0 ? `quedan ${e.llaves.dias} días` : `vencido hace ${-e.llaves.dias} días`})
+                </p>
+              )}
               <h4 className="font-bold text-slate-800 text-sm leading-snug">{direccion(e)}</h4>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 font-medium">
                 <span className="flex items-center"><Layers size={12} className="mr-1 text-slate-400" />{e.TOTALES || 0} UUIs</span>
@@ -153,6 +175,9 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
                 )}
                 {e['ULTIMA-VISITA'] && (
                   <span className="flex items-center"><Calendar size={12} className="mr-1 text-slate-400" />{e['ULTIMA-VISITA']}</span>
+                )}
+                {e['FECHA-CONTACTADO'] && (
+                  <span className="flex items-center" title="Última vez declarado como Contactado en la web">Contactado {e['FECHA-CONTACTADO']}</span>
                 )}
               </div>
               {e.COMENTARIO && (

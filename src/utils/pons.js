@@ -7,7 +7,44 @@
 // Todo se recalcula en cada carga: la web manda en PON, objetivo y datos del edificio;
 // el CRM manda en estado, comentarios y visitas.
 
+import { normalizarFecha } from './fechas.js';
+
 export const SIN_PON = '(SIN PON ASIGNADO)';
+
+// FECHA-ENTREGA-LLAVES es la fecha tope: la gestión debe hacerse con al menos 60 días de antelación.
+export const DIAS_ANTELACION_LLAVES = 60;
+// Aviso destacado cuando quedan menos de estos días para el límite de gestión
+export const DIAS_AVISO_LLAVES = 30;
+
+function aFecha(dmy) {
+  const m = String(dmy || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
+}
+
+function formatoFecha(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
+}
+
+/** Datos de la fecha de entrega de llaves de un edificio, o null si no tiene. */
+export function infoLlaves(fila, hoy = new Date()) {
+  const fecha = normalizarFecha(fila['FECHA-ENTREGA-LLAVES']);
+  const tope = aFecha(fecha);
+  if (!tope) return null;
+  const limite = new Date(tope);
+  limite.setDate(limite.getDate() - DIAS_ANTELACION_LLAVES);
+  const hoy0 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  return {
+    fecha,                                   // fecha tope de entrega de llaves
+    limite: formatoFecha(limite),            // último día para tenerlo gestionado
+    dias: Math.round((limite - hoy0) / 86400000), // días que quedan hasta ese límite (negativo = vencido)
+    estado: String(fila['ESTADO_LLAVES'] || '').trim()
+  };
+}
+
+export function estaCumplida(edificio) {
+  return String(edificio['ESTADO_FECHA'] || '').trim().toUpperCase() === 'CUMPLIDA';
+}
 
 // Tramos de color según OBJETIVO_HORA. Es solo una configuración: se puede cambiar aquí.
 // El objetivo sale de una tabla (densidad + fase) y vale 0 cuando el PON está FINALIZADO.
@@ -47,6 +84,10 @@ function fusionarEdificio(fila, crm) {
     if (fila[campo] !== undefined && fila[campo] !== null && fila[campo] !== '') base[campo] = fila[campo];
   });
   base['ESTADO WEB'] = String(fila['ESTADO-DE-PERMISO'] || '').trim();
+  base['ESTADO_FECHA'] = String(fila['ESTADO_FECHA'] || '').trim();
+  base['FECHA-CONTACTADO'] = normalizarFecha(fila['FECHA-CONTACTADO']);
+  base['TIPO-BLOQUEO'] = String(fila['TIPO-BLOQUEO'] || '').trim();
+  base.llaves = infoLlaves(fila);
   base._soloWeb = !crm;
   return base;
 }
@@ -115,6 +156,11 @@ export function construirPons(web, edificiosCRM = []) {
   lista.forEach((p) => {
     p.pendientesSubirN = p.pendientesSubir.length;
     p.gestionablesN = p.gestionables.length;
+    // Avisos: edificios con ESTADO_FECHA = CUMPLIDA y edificios con fecha de entrega de llaves
+    p.cumplidasN = p.gestionables.filter(estaCumplida).length;
+    const conLlaves = p.gestionables.filter((e) => e.llaves);
+    p.llavesN = conLlaves.length;
+    p.llavesDias = conLlaves.length ? Math.min(...conLlaves.map((e) => e.llaves.dias)) : null;
   });
   lista.sort(ordenarPons('objetivo'));
 
@@ -126,7 +172,9 @@ export function construirPons(web, edificiosCRM = []) {
       porGestionar: lista.reduce((a, p) => a + p.gestionablesN, 0),
       uuisPorGestionar: lista.reduce((a, p) => a + p.uuisGestionables, 0),
       pendientesSubir: lista.reduce((a, p) => a + p.pendientesSubirN, 0),
-      edificiosSoloWeb: soloWeb.length
+      edificiosSoloWeb: soloWeb.length,
+      cumplidas: lista.reduce((a, p) => a + p.cumplidasN, 0),
+      llaves: lista.reduce((a, p) => a + p.llavesN, 0)
     }
   };
 }

@@ -51,7 +51,9 @@ function normalizarEstado_(r) {
 // ---------------------------------------------------------------------------
 var WEB_CAMPOS = ['GESCAL26', 'POBLACION', 'TIPO-VIA', 'NOMBRE-VIA', 'NUM', 'ZONA-GPON', 'TOTALES',
                   'TIPO-DE-PERMISO', 'ESTADO-DE-PERMISO', 'CLIENTES', 'FASE', 'DENSIDAD',
-                  'AVANCE_FASE', 'OBJETIVO_HORA'];
+                  'AVANCE_FASE', 'OBJETIVO_HORA',
+                  // Columnas añadidas a la descarga en noviembre de 2026
+                  'FECHA-CONTACTADO', 'ESTADO_FECHA', 'TIPO-BLOQUEO', 'FECHA-ENTREGA-LLAVES', 'ESTADO_LLAVES'];
 
 function valorWeb_(v, campo, tz) {
   if (v instanceof Date) return campo === 'NOMBRE-VIA' ? fechaComoNombreVia_(v, tz) : fmtFecha_(v, tz);
