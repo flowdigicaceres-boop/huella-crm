@@ -10,6 +10,7 @@ import { proponerDia, VISITAS_POR_DEFECTO, DIAS_SIN_REPETIR } from '../utils/pro
 import { formatoHoras, horasDeJornada } from '../utils/horas';
 import { estaCumplida } from '../utils/pons';
 import { hoyDDMMYYYY } from '../utils/fechas';
+import { idsVisitadosHoy } from '../utils/jornada';
 import { usePonGeocodes } from '../hooks/usePonGeocodes';
 import { ChipObjetivo, MensajeSinWeb } from './ponUi';
 
@@ -20,7 +21,7 @@ function direccion(e) {
 
 const km = (n) => `${n.toFixed(1).replace('.', ',')} km`;
 
-export default function PropuestaDia({ pons, webError, estado, setEstado, onSelectBuilding, onSelectPon, onBack }) {
+export default function PropuestaDia({ pons, visitas = [], webError, estado, setEstado, onSelectBuilding, onSelectPon, onBack }) {
   const [errorGps, setErrorGps] = useState('');
 
   const poblaciones = useMemo(() => {
@@ -51,10 +52,20 @@ export default function PropuestaDia({ pons, webError, estado, setEstado, onSele
   const hoy = hoyDDMMYYYY();
   const resultado = estado.resultado;
 
+  // Visitas de hoy: TODAS (las de la propuesta y las que hagas fuera de ella). Es el mismo número del contador de arriba.
+  const visitadosHoy = useMemo(() => idsVisitadosHoy(visitas), [visitas]);
+  const totalHoy = visitadosHoy.size;
+
   const calcular = (cambios) => {
     const siguiente = { ...estado, poblacion, ...cambios };
+    // Las visitas que ya llevas hoy cuentan: se propone solo lo que falta hasta el objetivo
+    const faltan = Math.max(0, siguiente.n - totalHoy);
+    if (faltan === 0) {
+      setEstado({ ...siguiente, resultado: { vacio: true, motivo: 'objetivo-cumplido' } });
+      return;
+    }
     const r = proponerDia({
-      pons, poblacion: siguiente.poblacion, n: siguiente.n, geocodes, hoy: new Date(),
+      pons, poblacion: siguiente.poblacion, n: faltan, geocodes, hoy: new Date(),
       posicion: siguiente.posicion || null, semilla: siguiente.semilla, excluir: siguiente.excluidos,
       jornada: siguiente.jornada
     });
@@ -85,8 +96,10 @@ export default function PropuestaDia({ pons, webError, estado, setEstado, onSele
     );
   }
 
-  const hechas = resultado && !resultado.vacio
-    ? resultado.grupos.flatMap((g) => g.edificios).filter((e) => (actuales.get(String(e.GESCAL26)) || e)['ULTIMA-VISITA'] === hoy).length
+  // De las visitas de esta propuesta, cuántas ya están hechas hoy
+  const hechasPropuesta = resultado && !resultado.vacio
+    ? resultado.grupos.flatMap((g) => g.edificios).filter((e) => visitadosHoy.has(String(e.GESCAL26))
+        || (actuales.get(String(e.GESCAL26)) || e)['ULTIMA-VISITA'] === hoy).length
     : 0;
 
   return (
@@ -106,7 +119,7 @@ export default function PropuestaDia({ pons, webError, estado, setEstado, onSele
             </select>
           </label>
           <label className="block">
-            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Visitas</span>
+            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Objetivo de visitas hoy</span>
             <input
               type="number"
               min="1"
@@ -117,6 +130,11 @@ export default function PropuestaDia({ pons, webError, estado, setEstado, onSele
             />
           </label>
         </div>
+
+        <p className="text-xs font-bold text-slate-700 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2">
+          Hoy llevas {totalHoy} de {estado.n} visitas
+          {totalHoy > 0 && totalHoy < estado.n ? ` · faltan ${estado.n - totalHoy}` : ''}
+        </p>
 
         <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
           <span>Jornada: <strong className="text-slate-700">{estado.jornada} h</strong> {estado.jornada === 7 ? '(viernes)' : ''}</span>
@@ -153,7 +171,9 @@ export default function PropuestaDia({ pons, webError, estado, setEstado, onSele
 
       {resultado && resultado.vacio && (
         <div className="bg-white border border-slate-100 rounded-2xl p-6 text-center text-xs text-slate-500 shadow-xs">
-          No hay edificios disponibles en {poblacion} (descontando los visitados en los últimos {DIAS_SIN_REPETIR} días).
+          {resultado.motivo === 'objetivo-cumplido'
+            ? `Ya has hecho ${totalHoy} visitas hoy: has llegado al objetivo de ${estado.n}. Si quieres seguir, sube el objetivo de visitas.`
+            : `No hay edificios disponibles en ${poblacion} (descontando los visitados en los últimos ${DIAS_SIN_REPETIR} días).`}
         </div>
       )}
 
@@ -162,10 +182,14 @@ export default function PropuestaDia({ pons, webError, estado, setEstado, onSele
           <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white shadow-md space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-wider text-blue-100">Propuesta para {poblacion}</span>
-              <span className="text-xs font-bold bg-white/20 rounded-full px-2 py-0.5">{hechas}/{resultado.nVisitas} hechas hoy</span>
+              <span className="text-xs font-bold bg-white/20 rounded-full px-2 py-0.5">{totalHoy}/{estado.n} hoy</span>
             </div>
             <p className="text-lg font-extrabold leading-tight">
-              {resultado.nVisitas} visitas · {resultado.grupos.length} PON
+              {resultado.nVisitas} visitas propuestas · {resultado.grupos.length} PON
+            </p>
+            <p className="text-[11px] text-blue-100">
+              De esta propuesta llevas {hechasPropuesta} hechas
+              {totalHoy > hechasPropuesta ? ` · otras ${totalHoy - hechasPropuesta} visitas de hoy fuera de ella` : ''}.
             </p>
             <p className="text-xs text-blue-100">
               Zona de {km(resultado.dispersionKm)} · recorrido aprox. {km(resultado.kmRecorrido)} · jornada de {resultado.jornada} h

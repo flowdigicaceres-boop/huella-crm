@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { db } from '../services/db';
 import { geocodeBuilding } from '../services/geocoding';
+import { coordenadaPlausible, poblacionDe, direccionTexto } from '../utils/ubicacion';
 
 export default function EdificioFicha({ 
   gescal, 
@@ -93,10 +94,12 @@ export default function EdificioFicha({
 
   const handleNavigate = () => {
     let url;
-    if (coords && coords.lat && coords.lon) {
+    // Solo se usan coordenadas que caen dentro de su población; si no, se busca la dirección con
+    // población y provincia, para que Google no elija una calle con el mismo nombre en otro sitio.
+    if (coords && coordenadaPlausible(coords, poblacionDe(building))) {
       url = `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lon}`;
     } else {
-      url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fullAddress + ', España')}`;
+      url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionTexto(building))}`;
     }
     window.open(url, '_blank');
   };

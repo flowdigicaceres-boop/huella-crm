@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import { db } from '../services/db';
 import { edificiosDelPon } from '../utils/pons';
-import { geocodeFastRealStreet } from '../components/MapView';
+import { geocodeFastRealStreet } from '../services/geocoder';
 
 const PUNTOS_POR_PON = 3;       // con 3 edificios localizados basta para situar el PON
 const PAUSA_MS = 150;

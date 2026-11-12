@@ -1,6 +1,6 @@
 // src/hooks/useGoogleSheets.js
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { db } from '../services/db';
+import { db, migrarGeocodes } from '../services/db';
 import { construirPons } from '../utils/pons';
 
 function registrarVisitaEnMemoriaDiaria(gescalId) {
@@ -297,6 +297,11 @@ export function useGoogleSheets() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [syncPendingVisitas]);
+
+  // Una sola vez al arrancar: descarta las coordenadas guardadas con el buscador antiguo
+  useEffect(() => {
+    migrarGeocodes();
+  }, []);
 
   useEffect(() => {
     fetchData();

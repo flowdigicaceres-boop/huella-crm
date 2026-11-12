@@ -1,6 +1,6 @@
 // src/components/Layout.jsx
 import React, { useState, useMemo } from 'react';
-import { normalizarFecha, hoyDDMMYYYY } from '../utils/fechas';
+import { idsVisitadosHoy } from '../utils/jornada';
 import { 
   Home, 
   Map as MapIcon, 
@@ -73,34 +73,8 @@ export default function Layout({
   };
 
   // CÁLCULO BLINDADO DE VISITAS DE HOY (NUNCA VUELVE A 0 DURANTE LA JORNADA)
-  const visitasHoyCount = useMemo(() => {
-    const todayStr = new Date().toLocaleDateString('es-ES');
-    const storedDate = localStorage.getItem('huella_daily_counter_date');
-    let idsSet = new Set();
-
-    // 1. Cargar visitas guardadas en la memoria permanente de hoy
-    if (storedDate === todayStr) {
-      try {
-        const rawIds = localStorage.getItem('huella_daily_visited_ids');
-        if (rawIds) {
-          idsSet = new Set(JSON.parse(rawIds));
-        }
-      } catch (e) {}
-    } else {
-      // Medianoche superada: limpiar para el nuevo día
-      localStorage.setItem('huella_daily_counter_date', todayStr);
-      localStorage.setItem('huella_daily_visited_ids', JSON.stringify([]));
-    }
-
-    // 2. Sumar las visitas de HOY (el historial completo de la hoja no cuenta)
-    const hoy = hoyDDMMYYYY();
-    (visitas || []).forEach(v => {
-      const g = v.GESCAL || v.gescal;
-      if (g && normalizarFecha(v.Fecha || v.fecha) === hoy) idsSet.add(String(g).trim());
-    });
-
-    return idsSet.size;
-  }, [visitas]);
+  // El mismo cálculo que usa la propuesta del día (utils/jornada.js), para que los números coincidan
+  const visitasHoyCount = useMemo(() => idsVisitadosHoy(visitas).size, [visitas]);
 
   const isEdificiosActive = currentTab === 'list' || currentTab === 'detail' || currentTab === 'register-visit';
 

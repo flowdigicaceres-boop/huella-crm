@@ -144,6 +144,7 @@ function App() {
         return (
           <PropuestaDia
             pons={pons}
+            visitas={visitas}
             webError={webError}
             estado={propuesta}
             setEstado={guardarPropuesta}

@@ -1,10 +1,16 @@
 // src/services/geocoding.js
+// Coordenadas de un edificio para "Cómo llegar" y la ficha. Usa la caché del móvil (IndexedDB) y, si no hay,
+// busca por dirección dentro de su población (ver geocoder.js). Nunca devuelve un sitio lejos de su población.
 import { db } from './db';
+import { geocodeFastRealStreet } from './geocoder';
+import {
+  poblacionDe, centroDePoblacion, cajaDePoblacion, coordenadaPlausible, direccionTexto
+} from '../utils/ubicacion';
 
+const MIN_DELAY = 1100; // Nominatim pide como máximo 1 petición por segundo
 let lastRequestTime = 0;
-const MIN_DELAY = 1100; // 1.1s delay to comply with Nominatim's 1 req/sec policy
 
-// Queue for geocoding requests
+// Cola para no lanzar muchas búsquedas a la vez
 let queue = [];
 let processing = false;
 
@@ -17,8 +23,7 @@ async function processQueue() {
   while (queue.length > 0) {
     const { building, resolve, reject } = queue.shift();
     try {
-      const coords = await performGeocoding(building);
-      resolve(coords);
+      resolve(await performGeocoding(building));
     } catch (error) {
       console.error('Geocoding queue error:', error);
       reject(error);
@@ -28,97 +33,67 @@ async function processQueue() {
   processing = false;
 }
 
-async function performGeocoding(building) {
-  // Check IndexedDB cache first
-  const cached = await db.getGeocode(building.GESCAL26);
-  if (cached) {
-    return { lat: cached.lat, lon: cached.lon };
-  }
-
-  // Componer dirección completa
-  // E.g., "CALLE MAYOR 15, MADRID, España"
-  const tipoVia = String(building['TIPO-VIA'] || '').trim();
-  const nombreVia = String(building['NOMBRE-VIA'] || '').trim();
-  const num = String(building['NUM'] || '').trim();
-  const poblacion = String(building['POBLACION'] || '').trim();
-  
-  if (!nombreVia || !poblacion) {
-    return null; // Dirección inválida
-  }
-
-  const address = `${tipoVia} ${nombreVia} ${num}, ${poblacion}, España`;
-
-  // Rate limiting delay
-  const now = Date.now();
-  const timeSinceLast = now - lastRequestTime;
-  if (timeSinceLast < MIN_DELAY) {
-    const waitTime = MIN_DELAY - timeSinceLast;
-    await delay(waitTime);
-  }
-
+/** Último recurso: Nominatim, limitado a la caja de la población. */
+async function buscarNominatim(building, poblacion) {
+  const espera = MIN_DELAY - (Date.now() - lastRequestTime);
+  if (espera > 0) await delay(espera);
   lastRequestTime = Date.now();
 
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
-    const response = await fetch(url, {
-      headers: {
-        'Accept-Language': 'es',
-        'User-Agent': 'HuellaCRM-Android-App-v1.0 (range.escritorio.ia@gmail.com)'
-      }
-    });
+  const caja = cajaDePoblacion(poblacion);
+  let url = `https://nominatim.openstreetmap.org/search?format=json&limit=3&countrycodes=es&q=${encodeURIComponent(direccionTexto(building))}`;
+  if (caja) url += `&viewbox=${caja.minLon},${caja.maxLat},${caja.maxLon},${caja.minLat}&bounded=1`;
 
-    if (!response.ok) {
-      throw new Error(`Nominatim request failed: ${response.status}`);
-    }
+  const response = await fetch(url, { headers: { 'Accept-Language': 'es' } });
+  if (!response.ok) throw new Error(`Nominatim request failed: ${response.status}`);
+  const data = await response.json();
+  const buena = (data || []).find((d) => coordenadaPlausible({ lat: parseFloat(d.lat), lon: parseFloat(d.lon) }, poblacion));
+  return buena ? { lat: parseFloat(buena.lat), lon: parseFloat(buena.lon) } : null;
+}
 
-    const data = await response.json();
-    
-    if (data && data.length > 0) {
-      const lat = parseFloat(data[0].lat);
-      const lon = parseFloat(data[0].lon);
-      
-      // Guardar en la base de datos local (IndexedDB)
-      await db.saveGeocode(building.GESCAL26, lat, lon);
-      return { lat, lon };
-    } else {
-      // Intentar una búsqueda menos específica si falla (sin el número de portal)
-      const fallbackAddress = `${tipoVia} ${nombreVia}, ${poblacion}, España`;
-      const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fallbackAddress)}&limit=1`;
-      
-      await delay(MIN_DELAY);
-      const fallbackResponse = await fetch(fallbackUrl, {
-        headers: {
-          'Accept-Language': 'es',
-          'User-Agent': 'HuellaCRM-Android-App-v1.0 (range.escritorio.ia@gmail.com)'
-        }
-      });
-      
-      if (fallbackResponse.ok) {
-        const fallbackData = await fallbackResponse.json();
-        if (fallbackData && fallbackData.length > 0) {
-          const lat = parseFloat(fallbackData[0].lat);
-          const lon = parseFloat(fallbackData[0].lon);
-          await db.saveGeocode(building.GESCAL26, lat, lon);
-          return { lat, lon };
-        }
-      }
-      
-      // Si todo falla, guardar null o valor por defecto para no volver a intentar infinitamente
-      await db.saveGeocode(building.GESCAL26, null, null);
-      return null;
-    }
-  } catch (error) {
-    console.error(`Error geocodificando: ${address}`, error);
-    return null;
+async function performGeocoding(building) {
+  const poblacion = poblacionDe(building);
+
+  // 1. Caché del móvil: solo se usa si cae dentro de su población (si no, se vuelve a buscar)
+  const cached = await db.getGeocode(building.GESCAL26);
+  if (cached) {
+    if (cached.lat === null || cached.lat === undefined) return null;
+    if (coordenadaPlausible(cached, poblacion)) return { lat: cached.lat, lon: cached.lon };
   }
+
+  // 2. Búsqueda por dirección dentro de la población
+  let coords = null;
+  try {
+    coords = await geocodeFastRealStreet(building);
+  } catch (e) {
+    coords = null;
+  }
+
+  // 3. Último recurso
+  if (!coords && poblacion && centroDePoblacion(poblacion)) {
+    try {
+      coords = await buscarNominatim(building, poblacion);
+    } catch (e) {
+      coords = null;
+    }
+  }
+
+  if (coords) {
+    await db.saveGeocode(building.GESCAL26, coords.lat, coords.lon);
+    return coords;
+  }
+  // Se guarda como "no localizado" para no insistir en cada carga
+  await db.saveGeocode(building.GESCAL26, null, null);
+  return null;
 }
 
 export const geocodeBuilding = (building) => {
   return new Promise((resolve, reject) => {
-    // Check cache synchronously if possible or add to queue
     db.getGeocode(building.GESCAL26).then((cached) => {
-      if (cached) {
-        resolve(cached.lat !== null ? { lat: cached.lat, lon: cached.lon } : null);
+      if (cached && cached.lat !== null && cached.lat !== undefined
+          && coordenadaPlausible(cached, poblacionDe(building))) {
+        resolve({ lat: cached.lat, lon: cached.lon });
+      } else if (cached && (cached.lat === null || cached.lat === undefined)) {
+        resolve(null);
       } else {
         queue.push({ building, resolve, reject });
         processQueue();

@@ -331,6 +331,20 @@ export const db = {
   }
 };
 
+// Versión del buscador de direcciones. Al subirla, las coordenadas guardadas en el móvil se descartan una vez
+// y se vuelven a calcular (las anteriores podían estar mal: direcciones estropeadas o fuera de su población).
+const VERSION_GEOCODES = '2';
+
+export async function migrarGeocodes() {
+  try {
+    if (localStorage.getItem('huella_geocode_version') === VERSION_GEOCODES) return;
+    await db.clearGeocodesCache();
+    localStorage.setItem('huella_geocode_version', VERSION_GEOCODES);
+  } catch (e) {
+    /* sin almacenamiento: se reintenta en la próxima carga */
+  }
+}
+
 function parseDateTime(dateStr, timeStr) {
   try {
     if (!dateStr) return new Date(0);

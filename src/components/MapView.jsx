@@ -18,6 +18,8 @@ import {
   Loader
 } from 'lucide-react';
 import { db } from '../services/db';
+import { geocodeFastRealStreet } from '../services/geocoder';
+import { coordenadaPlausible, direccionTexto } from '../utils/ubicacion';
 
 import 'leaflet/dist/leaflet.css';
 
@@ -88,51 +90,9 @@ function getOrganicOffset(gescalKey) {
   return { latOffset, lonOffset };
 }
 
-// MOTOR ESRI ARCGIS + PHOTON
-export async function geocodeFastRealStreet(b) {
-  const poblacion = resolvePoblacion(b);
-  const tipo = String(b['TIPO-VIA'] || '').replace(/c\//i, '').replace(/cl/i, '').replace(/av/i, '').trim();
-  const nombre = String(b['NOMBRE-VIA'] || '').replace(/^c\//i, '').replace(/^cl\//i, '').replace(/^av/i, '').trim();
-  const num = parseInt(String(b['NUM'] || '1').replace(/\D/g, ''), 10) || 1;
-
-  if (!nombre) return null;
-
-  const fullAddress = `${tipo} ${nombre} ${num}, ${poblacion}, España`.replace(/\s+/g, ' ').trim();
-
-  try {
-    const urlArcGIS = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(fullAddress)}&maxLocations=1`;
-    const resArc = await fetch(urlArcGIS);
-    const dataArc = await resArc.json();
-    if (dataArc && dataArc.candidates && dataArc.candidates.length > 0) {
-      const loc = dataArc.candidates[0].location;
-      return { lat: loc.y, lon: loc.x };
-    }
-  } catch (e) {}
-
-  try {
-    const urlPhoton = `https://photon.komoot.io/api/?q=${encodeURIComponent(fullAddress)}&limit=1`;
-    const resPho = await fetch(urlPhoton);
-    const dataPho = await resPho.json();
-    if (dataPho && dataPho.features && dataPho.features.length > 0) {
-      const coords = dataPho.features[0].geometry.coordinates;
-      return { lat: coords[1], lon: coords[0] };
-    }
-  } catch (e) {}
-
-  try {
-    const streetOnly = `${nombre}, ${poblacion}, España`;
-    const urlStreet = `https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&singleLine=${encodeURIComponent(streetOnly)}&maxLocations=1`;
-    const resStreet = await fetch(urlStreet);
-    const dataStreet = await resStreet.json();
-    if (dataStreet && dataStreet.candidates && dataStreet.candidates.length > 0) {
-      const loc = dataStreet.candidates[0].location;
-      const offset = (num % 30) * 0.00006;
-      return { lat: loc.y + offset, lon: loc.x + offset };
-    }
-  } catch (e) {}
-
-  return null;
-}
+// El buscador de direcciones vive ahora en services/geocoder.js (limita la búsqueda a la población
+// y descarta resultados lejanos). Se vuelve a exportar aquí por compatibilidad.
+export { geocodeFastRealStreet };
 
 const getMarkerIcon = (status) => {
   const st = (status || '').toLowerCase().trim();
@@ -319,9 +279,11 @@ export default function MapView({
     return filtered.map((b, idx) => {
       const gescalKey = String(b.GESCAL26 || idx);
       const cachedCoords = cachedGeocodesMap[gescalKey];
-      
-      let coords = cachedCoords;
-      if (!coords || coords.lat === null || coords.lon === null) {
+
+      // Solo se fían las coordenadas que caen dentro de su población
+      const coordsReales = coordenadaPlausible(cachedCoords, resolvePoblacion(b));
+      let coords = coordsReales ? cachedCoords : null;
+      if (!coords) {
         const pobNorm = normalizeText(resolvePoblacion(b));
         const baseCenter = TOWN_COORDS[pobNorm] || [40.029, -6.088];
         const { latOffset, lonOffset } = getOrganicOffset(gescalKey);
@@ -330,7 +292,8 @@ export default function MapView({
 
       return {
         ...b,
-        coords
+        coords,
+        coordsReales
       };
     });
   }, [edificios, cachedGeocodesMap, poblacionFiltro]);
@@ -351,16 +314,11 @@ export default function MapView({
   };
 
   const getMapsUrl = (e) => {
-    const tipo = String(e['TIPO-VIA'] || '').trim();
-    const nombre = String(e['NOMBRE-VIA'] || '').trim();
-    const num = String(e['NUM'] || '').trim();
-    const pob = resolvePoblacion(e);
-    const address = `${tipo} ${nombre} ${num}, ${pob}, España`;
-    
-    if (e.coords) {
+    // Con coordenadas de verdad (dentro de su población); si no, se busca la dirección con población y provincia
+    if (e.coordsReales && e.coords) {
       return `https://www.google.com/maps/dir/?api=1&destination=${e.coords.lat},${e.coords.lon}`;
     }
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionTexto(e))}`;
   };
 
   return (
