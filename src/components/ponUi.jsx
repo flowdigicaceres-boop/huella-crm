@@ -59,6 +59,19 @@ export function usePonFiltros() {
   };
 }
 
+/** Aviso cuando la descarga web trae filas ignoradas o algún otro problema (pero hay datos que usar). */
+export function AvisoWeb({ webError, ignoradas = 0 }) {
+  const texto = [webError, ignoradas > 0 && !webError ? `Se han ignorado ${ignoradas} filas de la descarga (sin GESCAL o repetidas).` : '']
+    .filter(Boolean)
+    .join(' ');
+  if (!texto) return null;
+  return (
+    <div className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+      ⚠️ {texto}
+    </div>
+  );
+}
+
 export function MensajeSinWeb({ webError }) {
   return (
     <div className="bg-white border border-slate-100 rounded-2xl p-6 shadow-xs space-y-3 text-center">

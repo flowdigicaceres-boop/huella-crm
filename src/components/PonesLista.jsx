@@ -2,7 +2,7 @@
 import React, { useMemo, useState } from 'react';
 import { Search, ChevronRight, Filter, Upload, Layers, Radio, KeyRound, AlertTriangle } from 'lucide-react';
 import { ordenarPons } from '../utils/pons';
-import { ChipObjetivo, MensajeSinWeb, esFinalizado, formatoAvance, usePonFiltros } from './ponUi';
+import { ChipObjetivo, MensajeSinWeb, AvisoWeb, esFinalizado, formatoAvance, usePonFiltros } from './ponUi';
 
 function normalizar(texto) {
   return String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -101,6 +101,7 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
           </button>
         </div>
 
+        <AvisoWeb webError={webError} ignoradas={pons.resumen.filasIgnoradas} />
         {pons.resumen.llaves > 0 && (
           <button
             type="button"

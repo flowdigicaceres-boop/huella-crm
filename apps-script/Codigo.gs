@@ -55,6 +55,10 @@ var WEB_CAMPOS = ['GESCAL26', 'POBLACION', 'TIPO-VIA', 'NOMBRE-VIA', 'NUM', 'ZON
                   // Columnas añadidas a la descarga en noviembre de 2026
                   'FECHA-CONTACTADO', 'ESTADO_FECHA', 'TIPO-BLOQUEO', 'FECHA-ENTREGA-LLAVES', 'ESTADO_LLAVES'];
 
+// Un GESCAL real: muchos dígitos seguidos de guiones o letras ("10000390004900002---------").
+// Sirve para detectar datos pegados con las columnas desplazadas (p. ej. una población en lugar del GESCAL).
+var GESCAL_RE = /^\d{12,}[-A-Za-z0-9]*$/;
+
 function valorWeb_(v, campo, tz) {
   if (v instanceof Date) return campo === 'NOMBRE-VIA' ? fechaComoNombreVia_(v, tz) : fmtFecha_(v, tz);
   return v;
@@ -78,10 +82,18 @@ function leerWeb_(ss, tz) {
 
   var filas = [];
   var pons = {};
+  var vistos = {};
+  var total = 0;
+  var sinGescal = 0;
+  var repetidas = 0;
   for (var i = 1; i < vals.length; i++) {
     var row = vals[i];
     var gescal = String(row[idx['GESCAL26']]).trim();
-    if (!gescal) continue;
+    if (!gescal && !String(row.join('')).trim()) continue;       // fila completamente vacía
+    total++;
+    if (!GESCAL_RE.test(gescal)) { sinGescal++; continue; }       // columnas desplazadas o fila rara
+    if (vistos[gescal]) { repetidas++; continue; }                 // el mismo GESCAL dos veces: se usa el primero
+    vistos[gescal] = true;
     var pon = String(row[idx['ZONA-GPON']] || '').trim();
     var estado = String(row[idx['ESTADO-DE-PERMISO']] || '').trim();
     var p = pons[pon];
@@ -108,9 +120,22 @@ function leerWeb_(ss, tz) {
     filas.push(obj);
   }
 
+  // Si casi ninguna fila trae un GESCAL, los datos están mal pegados: no se manda nada (la app conserva la última descarga buena)
+  if (total > 0 && sinGescal > total * 0.2) {
+    return {
+      web: null,
+      error: 'La pestaña WEB tiene mal las columnas: ' + sinGescal + ' de ' + total + ' filas no traen un GESCAL en la columna GESCAL26. ' +
+             'Borra el contenido de WEB y pega de nuevo la descarga entera, con su fila de cabeceras, desde la celda A1.'
+    };
+  }
+
+  var avisos = [];
+  if (sinGescal > 0) avisos.push('Se han ignorado ' + sinGescal + ' filas de WEB sin un GESCAL válido.');
+  if (repetidas > 0) avisos.push('Se han ignorado ' + repetidas + ' filas de WEB con un GESCAL repetido.');
+
   var lista = [];
   for (var nombre in pons) lista.push(pons[nombre]);
-  return { web: { filas: filas, pons: lista }, error: '' };
+  return { web: { filas: filas, pons: lista }, error: avisos.join(' ') };
 }
 
 function doGet(e) {
@@ -210,6 +235,8 @@ function doPost(e) {
 
     var gescal = String(data.gescal || data.GESCAL || data.GESCAL26 || '').trim();
     if (!gescal) return json_({ success: false, error: 'Falta el GESCAL' });
+    // No se guarda nada con un GESCAL que no lo parece (evita filas basura en VISITAS y EDIFICIOS)
+    if (!GESCAL_RE.test(gescal)) return json_({ success: false, error: 'GESCAL no válido: ' + gescal });
 
     var resultado = data.resultado || data.Resultado || '';
     var comentario = data.comentario || data.Comentario || data.COMENTARIO || '';

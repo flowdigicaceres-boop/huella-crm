@@ -12,7 +12,7 @@ import { estaCumplida } from '../utils/pons';
 import { hoyDDMMYYYY } from '../utils/fechas';
 import { idsVisitadosHoy } from '../utils/jornada';
 import { usePonGeocodes } from '../hooks/usePonGeocodes';
-import { ChipObjetivo, MensajeSinWeb } from './ponUi';
+import { ChipObjetivo, MensajeSinWeb, AvisoWeb } from './ponUi';
 
 function direccion(e) {
   const num = Number(e['NUM']) >= 99990 ? 's/n' : (e['NUM'] || '');
@@ -105,6 +105,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
   return (
     <div className="space-y-4 pb-8">
       <Cabecera onBack={onBack} />
+      <AvisoWeb webError={webError} ignoradas={pons.resumen.filasIgnoradas} />
 
       <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
         <div className="grid grid-cols-2 gap-3">

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { db, migrarGeocodes } from '../services/db';
 import { construirPons } from '../utils/pons';
+import { esGescal, revisarWeb } from '../utils/gescal';
 
 function registrarVisitaEnMemoriaDiaria(gescalId) {
   try {
@@ -55,8 +56,16 @@ export function useGoogleSheets() {
       setEdificios(localEdificios || []);
       setVisitas(localVisitas || []);
       if (localWeb && localWeb.web) {
-        setWeb(localWeb.web);
-        setWebGuardado(localWeb.guardado || null);
+        const revision = revisarWeb(localWeb.web);
+        if (revision.ok) {
+          setWeb(localWeb.web);
+          setWebGuardado(localWeb.guardado || null);
+        } else {
+          // La descarga guardada en el móvil estaba mal pegada: se descarta
+          setWeb(null);
+          setWebError(revision.mensaje);
+          db.saveWeb(null).catch(() => {});
+        }
       }
       return { edificios: localEdificios, visitas: localVisitas };
     } catch (e) {
@@ -172,7 +181,15 @@ export function useGoogleSheets() {
         }
         // Descarga web: si la hoja no la trae (pestaña WEB ausente o con error) se conserva la última guardada
         setWebError(data.webError || '');
-        if (data.web) await db.saveWeb(data.web);
+        if (data.web) {
+          const revision = revisarWeb(data.web);
+          if (revision.ok) {
+            await db.saveWeb(data.web);
+          } else {
+            await db.saveWeb(null);       // no se guarda una descarga con las columnas desplazadas
+            setWebError(revision.mensaje);
+          }
+        }
 
         await loadLocalData();
         await syncPendingVisitas();
@@ -205,6 +222,11 @@ export function useGoogleSheets() {
     const hora = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     
     const comentarioLimpio = String(comentario || '').trim();
+
+    // Nunca se registra una visita con un GESCAL que no lo es (datos mal pegados): marcaría varios edificios a la vez
+    if (!esGescal(gescal)) {
+      throw new Error('Este edificio no tiene un GESCAL válido. Revisa la pestaña WEB de tu hoja (columnas desplazadas).');
+    }
 
     // El historial de la finca se construye con las visitas (hoja VISITAS);
     // COMENTARIO del edificio guarda solo el último comentario, igual que hace el Apps Script.

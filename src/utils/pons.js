@@ -8,6 +8,7 @@
 // el CRM manda en estado, comentarios y visitas.
 
 import { normalizarFecha } from './fechas.js';
+import { esGescal } from './gescal.js';
 
 export const SIN_PON = '(SIN PON ASIGNADO)';
 
@@ -106,10 +107,15 @@ export function construirPons(web, edificiosCRM = []) {
 
   const pons = new Map();
   const soloWeb = [];
+  const vistos = new Set();
+  let filasIgnoradas = 0;
 
   web.filas.forEach((fila) => {
     const gescal = String(fila.GESCAL26 || '').trim();
-    if (!gescal) return;
+    // Filas sin un GESCAL de verdad (datos mal pegados) o repetidas: no se usan, para que nunca
+    // dos "edificios" compartan el mismo GESCAL y una visita marque a todos.
+    if (!esGescal(gescal) || vistos.has(gescal)) { filasIgnoradas += 1; return; }
+    vistos.add(gescal);
     if (esEstadoConcedido(fila['ESTADO-DE-PERMISO'])) return; // por si el servidor no lo filtró
 
     const clave = String(fila['ZONA-GPON'] || '').trim() || SIN_PON;
@@ -173,6 +179,7 @@ export function construirPons(web, edificiosCRM = []) {
       uuisPorGestionar: lista.reduce((a, p) => a + p.uuisGestionables, 0),
       pendientesSubir: lista.reduce((a, p) => a + p.pendientesSubirN, 0),
       edificiosSoloWeb: soloWeb.length,
+      filasIgnoradas,
       cumplidas: lista.reduce((a, p) => a + p.cumplidasN, 0),
       llaves: lista.reduce((a, p) => a + p.llavesN, 0)
     }
