@@ -1,8 +1,8 @@
 // src/components/PonDetalle.jsx
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Navigation, Layers, Users, Upload, Copy, CheckCheck, ChevronRight, Calendar, MapPin, KeyRound, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Navigation, Layers, Users, Upload, Copy, CheckCheck, ChevronRight, Calendar, MapPin, KeyRound, AlertTriangle, XCircle, Ban } from 'lucide-react';
 import { db } from '../services/db';
-import { centroDePon, estaCumplida, DIAS_AVISO_LLAVES } from '../utils/pons';
+import { centroDePon, estaCumplida, esEstadoEnGestion, DIAS_AVISO_LLAVES } from '../utils/pons';
 import { ChipObjetivo, formatoAvance } from './ponUi';
 
 function direccion(e) {
@@ -94,7 +94,7 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
           {pon.poblacion}
         </p>
 
-        <div className="grid grid-cols-3 gap-2 text-center pt-1">
+        <div className="grid grid-cols-4 gap-2 text-center pt-1">
           <div className="bg-slate-50 rounded-xl py-2">
             <span className="block text-lg font-extrabold text-slate-800">{pon.gestionablesN}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase">Por gestionar</span>
@@ -107,12 +107,16 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
             <span className="block text-lg font-extrabold text-amber-600">{pon.pendientesSubirN}</span>
             <span className="text-[10px] font-bold text-slate-400 uppercase">Por subir</span>
           </div>
+          <div className="bg-slate-50 rounded-xl py-2">
+            <span className="block text-lg font-extrabold text-rose-600">{pon.denegadosN}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Denegados</span>
+          </div>
         </div>
 
         <p className="text-[11px] text-slate-400">
           {pon.concedidosWeb > 0
             ? `${pon.totalEdificios} edificios en el PON · ${pon.concedidosWeb} ya concedidos en la web`
-            : `${pon.totalEdificios} edificios pendientes en la web`}
+            : `${pon.totalEdificios} edificios en la descarga de la web`}
         </p>
 
         <button
@@ -188,6 +192,70 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
           </div>
         ))}
       </div>
+
+      {pon.denegadosN > 0 && (
+        <div className="space-y-2.5">
+          <h3 className="font-bold text-slate-800 text-sm flex items-center">
+            <XCircle size={16} className="mr-2 text-rose-500" />
+            Denegados en tu hoja, en gestión en la web ({pon.denegadosN})
+          </h3>
+          <p className="text-[11px] text-slate-500 -mt-1.5">
+            No se proponen solos. Si quieres reintentar su firma, ábrelos y registra la visita, o actívalo en «Proponer día».
+          </p>
+          {pon.denegadosCrm.map((e) => (
+            <div
+              key={e.GESCAL26}
+              onClick={() => onSelectBuilding(e.GESCAL26)}
+              className="bg-rose-50/60 border border-rose-100 rounded-2xl p-3 flex items-center justify-between cursor-pointer active:scale-95 transition select-none"
+            >
+              <div className="min-w-0 pr-2 space-y-0.5">
+                <h4 className="font-bold text-slate-800 text-xs leading-snug">{direccion(e)}</h4>
+                <span className="text-[10px] text-slate-500 font-mono block truncate">{e.GESCAL26}</span>
+                <span className="text-[10px] text-rose-700 font-semibold block">
+                  CRM: Denegado · Web: {e['ESTADO WEB']}{e['ULTIMA-VISITA'] ? ` · visitado ${e['ULTIMA-VISITA']}` : ''}
+                </span>
+                {e.COMENTARIO && (
+                  <p className="text-[11px] text-slate-500 italic line-clamp-2 whitespace-pre-line">{String(e.COMENTARIO).split('---')[0]}</p>
+                )}
+              </div>
+              <ChevronRight size={18} className="text-slate-400 shrink-0" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pon.fueraGestionN > 0 && (
+        <div className="space-y-2">
+          <h3 className="font-bold text-slate-600 text-sm flex items-center">
+            <Ban size={16} className="mr-2 text-slate-400" />
+            Fuera de gestión en la web, no se proponen ({pon.fueraGestionN})
+          </h3>
+          {pon.fueraGestion.map((e) => {
+            const crmEnGestion = esEstadoEnGestion(e['ESTADO IC']);
+            return (
+              <div
+                key={e.GESCAL26}
+                onClick={() => onSelectBuilding(e.GESCAL26)}
+                className={`rounded-2xl p-3 flex items-center justify-between cursor-pointer active:scale-95 transition select-none border ${
+                  crmEnGestion ? 'bg-amber-50/60 border-amber-100' : 'bg-slate-50 border-slate-100'
+                }`}
+              >
+                <div className="min-w-0 pr-2 space-y-0.5">
+                  <h4 className="font-bold text-slate-700 text-xs leading-snug">{direccion(e)}</h4>
+                  <span className="text-[10px] text-slate-400 font-mono block truncate">{e.GESCAL26}</span>
+                  <span className="text-[10px] text-slate-500 font-semibold block">
+                    Web: {e['ESTADO WEB'] || '—'} · {e['ESTADO IC'] ? `CRM: ${e['ESTADO IC']}` : 'Sin ficha en el CRM'}
+                  </span>
+                  {crmEnGestion && (
+                    <span className="text-[10px] text-amber-700 font-bold block">Tu hoja lo tiene EN GESTION: revisa el estado</span>
+                  )}
+                </div>
+                <ChevronRight size={18} className="text-slate-400 shrink-0" />
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {pon.pendientesSubirN > 0 && (
         <div className="space-y-2.5">

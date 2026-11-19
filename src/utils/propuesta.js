@@ -2,7 +2,7 @@
 // Propuesta del día: dada una población, elige unas 20 visitas agrupadas en los PON necesarios,
 // sin mandarte de un extremo a otro de la población, e incluye algún PON de objetivo bajo
 // para poder declarar ahí horas sin cargarte objetivo. Es una SUGERENCIA: no escribe nada.
-import { centroDePon, distanciaKm, SIN_PON } from './pons.js';
+import { centroDePon, distanciaKm, esEstadoDenegado, SIN_PON } from './pons.js';
 import { recomendarHoras, horasDeJornada } from './horas.js';
 
 export const VISITAS_POR_DEFECTO = 20;
@@ -27,8 +27,9 @@ export function diasDesde(dmy, hoy) {
 }
 
 function prioridadEstado(e) {
+  if (esEstadoDenegado(e['ESTADO IC'])) return 2;   // reintentos de denegados: después de lo normal
   const web = String(e['ESTADO WEB'] || '').toUpperCase();
-  return web === 'EN GESTION' || web === 'REGESTIONAR' ? 0 : 1;
+  return web === 'EN GESTION' ? 0 : 1;               // REGESTIONAR un poco después
 }
 
 /** Dentro de un PON: llaves primero, luego En gestión/Regestionar, luego los visitados hace más tiempo. */
@@ -45,8 +46,13 @@ function ordenarEdificios(lista, hoy) {
   });
 }
 
-function elegibles(pon, hoy, excluidos) {
-  return pon.gestionables.filter((e) => {
+/** Edificios que se pueden proponer de un PON: los de gestión y, si se pide, los denegados en el CRM (reintento de firma). */
+export function visitablesDelPon(pon, incluirDenegados = false) {
+  return incluirDenegados ? [...pon.gestionables, ...pon.denegadosCrm] : pon.gestionables;
+}
+
+function elegibles(pon, hoy, excluidos, incluirDenegados) {
+  return visitablesDelPon(pon, incluirDenegados).filter((e) => {
     if (excluidos.has(String(e.GESCAL26))) return false;
     if (e.llaves) return true;                                   // las de llaves entran siempre
     if (pon.id === SIN_PON) return false;   // "sin PON" no es un PON real (edificios dispersos): solo si tienen llaves
@@ -110,7 +116,7 @@ function ordenarRecorrido(grupos, salida) {
  */
 export function proponerDia({
   pons, poblacion, n = VISITAS_POR_DEFECTO, geocodes = {}, hoy = new Date(),
-  posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy)
+  posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy), incluirDenegados = false
 }) {
   if (!pons) return { vacio: true, motivo: 'sin-datos' };
   const excluidos = new Set(excluir.map(String));
@@ -119,7 +125,7 @@ export function proponerDia({
     .filter((p) => p.poblacion === poblacion)
     .map((pon) => ({
       pon,
-      edificios: ordenarEdificios(elegibles(pon, hoy, excluidos), hoy),
+      edificios: ordenarEdificios(elegibles(pon, hoy, excluidos, incluirDenegados), hoy),
       centro: centroDePon(pon, geocodes)
     }))
     .filter((c) => c.edificios.length > 0);

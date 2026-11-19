@@ -1,6 +1,6 @@
 // src/components/PonesLista.jsx
 import React, { useMemo, useState } from 'react';
-import { Search, ChevronRight, Filter, Upload, Layers, Radio, KeyRound, AlertTriangle } from 'lucide-react';
+import { Search, ChevronRight, Filter, Upload, Layers, Radio, KeyRound, AlertTriangle, XCircle } from 'lucide-react';
 import { ordenarPons } from '../utils/pons';
 import { ChipObjetivo, MensajeSinWeb, AvisoWeb, esFinalizado, formatoAvance, usePonFiltros } from './ponUi';
 
@@ -13,6 +13,7 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
   const [busqueda, setBusqueda] = useState('');
   const [orden, setOrden] = useState('objetivo');
   const [soloPendientes, setSoloPendientes] = useState(false);
+  const [soloDenegados, setSoloDenegados] = useState(false);
   const [aviso, setAviso] = useState('');   // '', 'cumplidas' o 'llaves'
 
   const poblaciones = useMemo(() => {
@@ -25,15 +26,16 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
     if (!pons) return [];
     const q = normalizar(busqueda);
     return pons.pons
-      .filter((p) => p.gestionablesN > 0 || (soloPendientes && p.pendientesSubirN > 0))
-      .filter((p) => verFinalizados || !esFinalizado(p) || p.llavesN > 0)   // con llaves siempre se ve
+      .filter((p) => p.gestionablesN > 0 || (soloPendientes && p.pendientesSubirN > 0) || (soloDenegados && p.denegadosN > 0))
+      .filter((p) => verFinalizados || !esFinalizado(p) || p.llavesN > 0 || (soloDenegados && p.denegadosN > 0))   // con llaves siempre se ve
       .filter((p) => poblacion === 'todos' || p.poblacion === poblacion)
       .filter((p) => !soloPendientes || p.pendientesSubirN > 0)
+      .filter((p) => !soloDenegados || p.denegadosN > 0)
       .filter((p) => aviso !== 'cumplidas' || p.cumplidasN > 0)
       .filter((p) => aviso !== 'llaves' || p.llavesN > 0)
       .filter((p) => !q || normalizar(p.nombre).includes(q) || normalizar(p.poblacion).includes(q))
       .sort(ordenarPons(orden));
-  }, [pons, busqueda, poblacion, verFinalizados, soloPendientes, orden, aviso]);
+  }, [pons, busqueda, poblacion, verFinalizados, soloPendientes, soloDenegados, orden, aviso]);
 
   const finalizadosOcultos = useMemo(() => {
     if (!pons || verFinalizados) return 0;
@@ -99,9 +101,53 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
           >
             Con pendientes de subir
           </button>
+
+          <button
+            type="button"
+            onClick={() => setSoloDenegados(!soloDenegados)}
+            className={`shrink-0 border text-xs px-3 py-1.5 rounded-full font-bold transition ${
+              soloDenegados ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-200'
+            }`}
+          >
+            Con denegados
+          </button>
         </div>
 
         <AvisoWeb webError={webError} ignoradas={pons.resumen.filasIgnoradas} />
+        {pons.resumen.denegadosCrm > 0 && (
+          <button
+            type="button"
+            onClick={() => setSoloDenegados(!soloDenegados)}
+            className={`w-full text-left text-xs font-bold rounded-xl px-3 py-2 flex items-center border ${
+              soloDenegados ? 'bg-rose-600 text-white border-rose-600' : 'bg-rose-50 text-rose-700 border-rose-200'
+            }`}
+          >
+            <XCircle size={14} className="mr-2 shrink-0" />
+            {pons.resumen.denegadosCrm} denegados en tu hoja siguen en gestión en la web ({pons.resumen.ponsConDenegados} PON): ¿reintentar la firma?
+          </button>
+        )}
+        {pons.resumen.pendientesSubir > 0 && (
+          <button
+            type="button"
+            onClick={() => setSoloPendientes(!soloPendientes)}
+            className={`w-full text-left text-xs font-bold rounded-xl px-3 py-2 flex items-center border ${
+              soloPendientes ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-800 border-amber-200'
+            }`}
+          >
+            <Upload size={14} className="mr-2 shrink-0" />
+            {pons.resumen.pendientesSubir} concedidos en tu hoja siguen en gestión en la web: falta subirlos
+          </button>
+        )}
+        {pons.resumen.desajustes > 0 && (
+          <p className="text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">
+            {pons.resumen.desajustes} edificios que la web tiene fuera de gestión (denegado, protegido...) aparecen EN GESTION en tu hoja: no se proponen; míralos en el detalle de cada PON.
+          </p>
+        )}
+        {pons.resumen.crmSinWeb > 0 && (
+          <p className="text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2">
+            {pons.resumen.crmSinWeb} edificios en gestión en tu hoja ya no vienen en la descarga de hoy (puede que estén concedidos).
+          </p>
+        )}
         {pons.resumen.llaves > 0 && (
           <button
             type="button"
@@ -189,6 +235,12 @@ export default function PonesLista({ pons, webError, webGuardado, onSelectPon })
                     <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded flex items-center">
                       <Upload size={9} className="mr-0.5" />
                       {p.pendientesSubirN}
+                    </span>
+                  )}
+                  {p.denegadosN > 0 && (
+                    <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded flex items-center">
+                      <XCircle size={9} className="mr-0.5" />
+                      {p.denegadosN} den.
                     </span>
                   )}
                   {p.llavesN > 0 && (

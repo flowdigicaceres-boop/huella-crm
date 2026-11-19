@@ -1,8 +1,11 @@
 // src/utils/pons.js
-// Cruza la descarga de la web (pestaña WEB de la hoja) con el CRM y agrupa por PON (ZONA-GPON).
+// Cruza la descarga de la web (pestaña WEB de la hoja) con el CRM (pestaña EDIFICIOS) y agrupa por PON (ZONA-GPON).
 //
-//  - "Por gestionar": la web NO lo tiene concedido y mi CRM tampoco.
-//  - "Pendiente de subir": mi CRM lo tiene CONCEDIDO pero la web todavía no.
+// La descarga trae lo que hay que visitar. Cada edificio de la web cae en UNA de estas listas:
+//  - "Por gestionar" (gestionables): EN GESTIÓN en la web y en el CRM (o aún sin ficha en el CRM). Es lo único que se propone.
+//  - "Pendiente de subir": en gestión en la web pero CONCEDIDO en mi CRM (hay que subirlo a la web). AVISO.
+//  - "Denegados en el CRM": en gestión en la web pero DENEGADO en mi CRM. AVISO, por si quiero reintentar la firma.
+//  - "Fuera de gestión": la web lo tiene DENEGADO, PROTEGIDO, NO APLICA... No se propone; se avisa si mi CRM lo tiene en gestión.
 //
 // Todo se recalcula en cada carga: la web manda en PON, objetivo y datos del edificio;
 // el CRM manda en estado, comentarios y visitas.
@@ -68,6 +71,21 @@ function sinTildes(texto) {
 
 export function esEstadoConcedido(estado) {
   return sinTildes(estado) === 'CONCEDIDO';
+}
+
+export function esEstadoDenegado(estado) {
+  return sinTildes(estado) === 'DENEGADO';
+}
+
+// Estados de la web que cuentan como "en gestión" (REGESTIONAR = volver a gestionarlo). Cámbialo aquí si hiciera falta.
+export const ESTADOS_WEB_EN_GESTION = ['EN GESTION', 'REGESTIONAR'];
+
+export function esEstadoWebEnGestion(estado) {
+  return ESTADOS_WEB_EN_GESTION.includes(sinTildes(estado));
+}
+
+export function esEstadoEnGestion(estado) {
+  return sinTildes(estado) === 'EN GESTION';
 }
 
 function aNumero(valor) {
@@ -136,8 +154,11 @@ export function construirPons(web, edificiosCRM = []) {
         concedidosWeb: m.concedidos || 0,
         gestionables: [],
         pendientesSubir: [],
+        denegadosCrm: [],
+        fueraGestion: [],
         uuisGestionables: 0,
         uuisPendientes: 0,
+        uuisDenegados: 0,
         clientes: 0
       };
       pons.set(clave, pon);
@@ -148,10 +169,18 @@ export function construirPons(web, edificiosCRM = []) {
     if (edificio._soloWeb) soloWeb.push(edificio);
 
     const uuis = aNumero(edificio.TOTALES) || 0;
-    if (crm && esEstadoConcedido(crm['ESTADO IC'])) {
+    const estadoCrm = crm ? crm['ESTADO IC'] : '';
+    if (!esEstadoWebEnGestion(fila['ESTADO-DE-PERMISO'])) {
+      // La web lo tiene denegado, protegido, no aplica...: no se propone
+      pon.fueraGestion.push(edificio);
+    } else if (esEstadoConcedido(estadoCrm)) {
       pon.pendientesSubir.push(edificio);
       pon.uuisPendientes += uuis;
+    } else if (esEstadoDenegado(estadoCrm)) {
+      pon.denegadosCrm.push(edificio);
+      pon.uuisDenegados += uuis;
     } else {
+      // En gestión en la web y en el CRM (o todavía sin ficha en el CRM)
       pon.gestionables.push(edificio);
       pon.uuisGestionables += uuis;
       pon.clientes += aNumero(edificio.CLIENTES) || 0;
@@ -161,6 +190,10 @@ export function construirPons(web, edificiosCRM = []) {
   const lista = Array.from(pons.values());
   lista.forEach((p) => {
     p.pendientesSubirN = p.pendientesSubir.length;
+    p.denegadosN = p.denegadosCrm.length;
+    p.fueraGestionN = p.fueraGestion.length;
+    // De los que la web da por fuera de gestión, los que MI CRM aún tiene en gestión (estados distintos)
+    p.desajustesN = p.fueraGestion.filter((e) => esEstadoEnGestion(e['ESTADO IC'])).length;
     p.gestionablesN = p.gestionables.length;
     // Avisos: edificios con ESTADO_FECHA = CUMPLIDA y edificios con fecha de entrega de llaves
     p.cumplidasN = p.gestionables.filter(estaCumplida).length;
@@ -170,14 +203,26 @@ export function construirPons(web, edificiosCRM = []) {
   });
   lista.sort(ordenarPons('objetivo'));
 
+  // Edificios que mi CRM tiene EN GESTIÓN pero que la descarga de hoy ya no trae (puede que ya estén concedidos)
+  const crmSinWeb = edificiosCRM.filter((e) => {
+    const g = String(e.GESCAL26 || e.GESCAL || '').trim();
+    return g && !vistos.has(g) && esEstadoEnGestion(e['ESTADO IC']);
+  });
+
   return {
     pons: lista,
     edificiosSoloWeb: soloWeb,
+    crmSinWeb,
     resumen: {
       pons: lista.length,
       porGestionar: lista.reduce((a, p) => a + p.gestionablesN, 0),
       uuisPorGestionar: lista.reduce((a, p) => a + p.uuisGestionables, 0),
       pendientesSubir: lista.reduce((a, p) => a + p.pendientesSubirN, 0),
+      denegadosCrm: lista.reduce((a, p) => a + p.denegadosN, 0),
+      ponsConDenegados: lista.filter((p) => p.denegadosN > 0).length,
+      fueraGestion: lista.reduce((a, p) => a + p.fueraGestionN, 0),
+      desajustes: lista.reduce((a, p) => a + p.desajustesN, 0),
+      crmSinWeb: crmSinWeb.length,
       edificiosSoloWeb: soloWeb.length,
       filasIgnoradas,
       cumplidas: lista.reduce((a, p) => a + p.cumplidasN, 0),
@@ -213,9 +258,9 @@ export function distanciaKm(lat1, lon1, lat2, lon2) {
   return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Edificios del PON (por gestionar y pendientes de subir) con coordenadas ya conocidas. */
+/** Edificios del PON que se pueden visitar (por gestionar, por subir y denegados a reintentar), para localizarlo en el mapa. */
 export function edificiosDelPon(pon) {
-  return [...pon.gestionables, ...pon.pendientesSubir];
+  return [...pon.gestionables, ...pon.pendientesSubir, ...pon.denegadosCrm];
 }
 
 /**

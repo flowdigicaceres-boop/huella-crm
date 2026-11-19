@@ -4,11 +4,11 @@
 import React, { useMemo, useState } from 'react';
 import {
   ArrowLeft, Sparkles, MapPin, Navigation, Layers, RefreshCw, KeyRound, AlertTriangle, CheckCircle,
-  ChevronRight, Loader, Crosshair
+  ChevronRight, Loader, Crosshair, Upload, XCircle
 } from 'lucide-react';
-import { proponerDia, VISITAS_POR_DEFECTO, DIAS_SIN_REPETIR } from '../utils/propuesta';
+import { proponerDia, visitablesDelPon, VISITAS_POR_DEFECTO, DIAS_SIN_REPETIR } from '../utils/propuesta';
 import { formatoHoras, horasDeJornada } from '../utils/horas';
-import { estaCumplida } from '../utils/pons';
+import { estaCumplida, esEstadoDenegado } from '../utils/pons';
 import { hoyDDMMYYYY } from '../utils/fechas';
 import { idsVisitadosHoy } from '../utils/jornada';
 import { usePonGeocodes } from '../hooks/usePonGeocodes';
@@ -23,21 +23,34 @@ const km = (n) => `${n.toFixed(1).replace('.', ',')} km`;
 
 export default function PropuestaDia({ pons, visitas = [], webError, estado, setEstado, onSelectBuilding, onSelectPon, onBack }) {
   const [errorGps, setErrorGps] = useState('');
+  const incluirDenegados = Boolean(estado.incluirDenegados);
 
   const poblaciones = useMemo(() => {
     const cuenta = new Map();
     (pons?.pons || []).forEach((p) => {
-      if (p.poblacion && p.gestionablesN > 0) cuenta.set(p.poblacion, (cuenta.get(p.poblacion) || 0) + p.gestionablesN);
+      const n = visitablesDelPon(p, incluirDenegados).length;
+      if (p.poblacion && n > 0) cuenta.set(p.poblacion, (cuenta.get(p.poblacion) || 0) + n);
     });
     return Array.from(cuenta.entries()).sort((a, b) => b[1] - a[1]).map(([nombre]) => nombre);
-  }, [pons]);
+  }, [pons, incluirDenegados]);
 
   const poblacion = estado.poblacion && poblaciones.includes(estado.poblacion) ? estado.poblacion : (poblaciones[0] || '');
 
   const ponsDePoblacion = useMemo(
-    () => (pons ? pons.pons.filter((p) => p.poblacion === poblacion && p.gestionablesN > 0) : []),
-    [pons, poblacion]
+    () => (pons ? pons.pons.filter((p) => p.poblacion === poblacion && visitablesDelPon(p, incluirDenegados).length > 0) : []),
+    [pons, poblacion, incluirDenegados]
   );
+
+  // Avisos de la población elegida: cruce entre la web y la hoja EDIFICIOS
+  const avisosPoblacion = useMemo(() => {
+    const delaPoblacion = (pons?.pons || []).filter((p) => p.poblacion === poblacion);
+    return {
+      denegados: delaPoblacion.filter((p) => p.denegadosN > 0),
+      porSubir: delaPoblacion.filter((p) => p.pendientesSubirN > 0),
+      nDenegados: delaPoblacion.reduce((a, p) => a + p.denegadosN, 0),
+      nPorSubir: delaPoblacion.reduce((a, p) => a + p.pendientesSubirN, 0)
+    };
+  }, [pons, poblacion]);
 
   // Se localizan los PON de la población en segundo plano para poder agruparlos por cercanía
   const { geocodes, pendientes } = usePonGeocodes(ponsDePoblacion, Boolean(poblacion));
@@ -45,7 +58,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
   // Estado actual de cada edificio (para marcar los que ya has visitado hoy)
   const actuales = useMemo(() => {
     const m = new Map();
-    (pons?.pons || []).forEach((p) => [...p.gestionables, ...p.pendientesSubir].forEach((e) => m.set(String(e.GESCAL26), e)));
+    (pons?.pons || []).forEach((p) => [...p.gestionables, ...p.pendientesSubir, ...p.denegadosCrm].forEach((e) => m.set(String(e.GESCAL26), e)));
     return m;
   }, [pons]);
 
@@ -67,7 +80,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
     const r = proponerDia({
       pons, poblacion: siguiente.poblacion, n: faltan, geocodes, hoy: new Date(),
       posicion: siguiente.posicion || null, semilla: siguiente.semilla, excluir: siguiente.excluidos,
-      jornada: siguiente.jornada
+      jornada: siguiente.jornada, incluirDenegados: Boolean(siguiente.incluirDenegados)
     });
     setEstado({ ...siguiente, resultado: r });
   };
@@ -159,6 +172,49 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
           </p>
         )}
 
+        {/* Solo se proponen los edificios en gestión en la web Y en tu hoja EDIFICIOS; el resto se avisa */}
+        {avisosPoblacion.nPorSubir > 0 && (
+          <div className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-2.5 flex items-start">
+            <Upload size={13} className="mr-2 mt-0.5 shrink-0" />
+            <span>
+              {avisosPoblacion.nPorSubir} {avisosPoblacion.nPorSubir === 1 ? 'edificio está' : 'edificios están'} CONCEDIDO en tu hoja pero
+              {' '}en gestión en la web (en {avisosPoblacion.porSubir.length} PON): no se proponen, falta subirlos a la web.
+            </span>
+          </div>
+        )}
+        {avisosPoblacion.nDenegados > 0 && (
+          <div className="text-[11px] bg-rose-50 border border-rose-200 rounded-xl p-2.5 space-y-1.5">
+            <p className="font-semibold text-rose-800 flex items-start">
+              <XCircle size={13} className="mr-2 mt-0.5 shrink-0" />
+              <span>
+                {avisosPoblacion.nDenegados} {avisosPoblacion.nDenegados === 1 ? 'edificio está' : 'edificios están'} DENEGADO en tu hoja pero
+                {' '}en gestión en la web. PON con denegados:
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-1.5 pl-5">
+              {avisosPoblacion.denegados.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => onSelectPon(p.id)}
+                  className="text-[10px] font-bold text-rose-700 bg-white border border-rose-200 rounded-full px-2 py-0.5 active:scale-95 transition"
+                >
+                  {p.nombre} · {p.denegadosN}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center space-x-2 pl-5 pt-0.5 font-bold text-rose-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={incluirDenegados}
+                onChange={(e) => setEstado({ ...estado, incluirDenegados: e.target.checked, resultado: null, semilla: 0, excluidos: [] })}
+                className="accent-rose-600"
+              />
+              <span>Reintentar su firma: incluirlos en la propuesta</span>
+            </label>
+          </div>
+        )}
+
         <button
           type="button"
           onClick={proponer}
@@ -227,6 +283,20 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
                       {g.edificios.length} edificios
                       {g.kmDesdeAnterior !== null && g.kmDesdeAnterior !== undefined ? ` · a ${km(g.kmDesdeAnterior)} del anterior` : ''}
                     </p>
+                    {(g.pon.denegadosN > 0 || g.pon.pendientesSubirN > 0) && (
+                      <p className="flex flex-wrap gap-1.5 pt-0.5">
+                        {g.pon.denegadosN > 0 && !incluirDenegados && (
+                          <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded px-1.5 py-0.5">
+                            {g.pon.denegadosN} denegado{g.pon.denegadosN === 1 ? '' : 's'} en tu hoja
+                          </span>
+                        )}
+                        {g.pon.pendientesSubirN > 0 && (
+                          <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                            {g.pon.pendientesSubirN} concedido{g.pon.pendientesSubirN === 1 ? '' : 's'} por subir
+                          </span>
+                        )}
+                      </p>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <span className="block text-[10px] font-bold text-slate-400 uppercase">Horas</span>
@@ -244,7 +314,9 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
                           <span className="block text-xs font-bold text-slate-800 leading-snug">{direccion(e)}</span>
                           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-slate-500 font-medium mt-0.5">
                             <span className="flex items-center"><Layers size={10} className="mr-0.5" />{e.TOTALES || 0} UUIs</span>
-                            <span>{e['ESTADO WEB']}</span>
+                            {esEstadoDenegado(e['ESTADO IC'])
+                              ? <span className="font-bold text-rose-600">DENEGADO · reintento</span>
+                              : <span>{e['ESTADO WEB']}</span>}
                             {e['ULTIMA-VISITA'] ? <span>visitado {e['ULTIMA-VISITA']}</span> : <span>sin visitar</span>}
                             {e.llaves && <span className="font-bold text-rose-600 flex items-center"><KeyRound size={10} className="mr-0.5" />LLAVES</span>}
                             {estaCumplida(e) && <span className="font-bold text-amber-700">CUMPLIDA</span>}
