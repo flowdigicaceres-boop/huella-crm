@@ -200,7 +200,7 @@ export default function PonDetalle({ pon, onBack, onSelectBuilding }) {
             Denegados en tu hoja, en gestión en la web ({pon.denegadosN})
           </h3>
           <p className="text-[11px] text-slate-500 -mt-1.5">
-            No se proponen solos. Si quieres reintentar su firma, ábrelos y registra la visita, o actívalo en «Proponer día».
+            Salen en «Proponer día» para reintentar su firma (puedes quitarlos allí con la casilla). Si no, ábrelos y registra la visita.
           </p>
           {pon.denegadosCrm.map((e) => (
             <div

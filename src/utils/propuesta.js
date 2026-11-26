@@ -8,6 +8,8 @@ import { recomendarHoras, horasDeJornada } from './horas.js';
 export const VISITAS_POR_DEFECTO = 20;
 export const DIAS_SIN_REPETIR = 7;          // no se proponen edificios visitados en los últimos 7 días
 export const DIAS_SIN_REPETIR_LLAVES = 5;   // los de fecha de llaves son prioritarios, pero no se repiten antes de 5 días
+export const DIAS_DESCANSO_PREFERIDO = 14;  // se prefieren edificios sin contactar desde hace 14 días o más; los de 7 a 13 solo si falta material
+export const FRACCION_ESPECIALES = 0.25;    // cupo de denegados a reintentar: ~25 % de las visitas (mínimo 3). Los REGESTIONAR entran todos
 export const DIAS_HISTORIAL_PROPUESTAS = 3; // lo propuesto en los 3 días anteriores y no hecho pasa a ir después
 const PENALIZACION_REPETIDO_KM = 0.08;      // cada edificio ya propuesto y no hecho "aleja" 80 m a su PON (más variedad)
 export const OBJETIVO_BAJO = 3.75;          // "objetivo bajo": 3,75 o menos (incluye los finalizados, 0)
@@ -81,11 +83,18 @@ function prioridadEstado(e) {
 }
 
 /** Dentro de un PON: llaves primero, luego lo no propuesto estos días, En gestión/Regestionar, y los contactados hace más tiempo. */
+/** Edificio "poco descansado": contactado hace menos de DIAS_DESCANSO_PREFERIDO días (los de llaves no cuentan). Se propone solo si falta material. */
+function pocoDescansado(e, hoy) {
+  return !e.llaves && diasDesdeContacto(e, hoy) < DIAS_DESCANSO_PREFERIDO;
+}
+
 function ordenarEdificios(lista, hoy, recientes) {
   const veces = (e) => recientes.get(String(e.GESCAL26)) || 0;
   return [...lista].sort((a, b) => {
     const llaves = (b.llaves ? 1 : 0) - (a.llaves ? 1 : 0);
     if (llaves) return llaves;
+    const descanso = (pocoDescansado(a, hoy) ? 1 : 0) - (pocoDescansado(b, hoy) ? 1 : 0);
+    if (descanso) return descanso;                        // los contactados hace poco, después de los que llevan más tiempo sin visitar
     const repetido = veces(a) - veces(b);                 // lo que ya se propuso y no se hizo, después
     if (repetido) return repetido;
     const estado = prioridadEstado(a) - prioridadEstado(b);
@@ -102,10 +111,12 @@ export function visitablesDelPon(pon, incluirDenegados = false) {
   return incluirDenegados ? [...pon.gestionables, ...pon.denegadosCrm] : pon.gestionables;
 }
 
-function elegibles(pon, hoy, excluidos, incluirDenegados) {
+/** relajar: para completar el objetivo se admiten también los contactados hace menos de 7 días (menos los de hoy). */
+function elegibles(pon, hoy, excluidos, incluirDenegados, relajar = false) {
   return visitablesDelPon(pon, incluirDenegados).filter((e) => {
     if (excluidos.has(String(e.GESCAL26))) return false;
     const dias = diasDesdeContacto(e, hoy);
+    if (relajar) return dias >= 1;
     // Con fecha de llaves entran aunque lleven poco tiempo, pero no todos los días: se respeta un margen más corto
     if (e.llaves) return dias >= DIAS_SIN_REPETIR_LLAVES;
     if (pon.id === SIN_PON) return false;   // "sin PON" no es un PON real (edificios dispersos): solo si tienen llaves
@@ -173,34 +184,49 @@ function ordenarRecorrido(grupos, salida) {
  */
 export function proponerDia({
   pons, poblacion, n = VISITAS_POR_DEFECTO, geocodes = {}, hoy = new Date(),
-  posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy), incluirDenegados = false,
+  posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy), incluirDenegados = true,
   historial = {}
 }) {
   if (!pons) return { vacio: true, motivo: 'sin-datos' };
   const excluidos = new Set(excluir.map(String));
   const recientes = propuestasRecientes(historial, hoy);
 
-  const candidatos = pons.pons
+  const construir = (relajar, conDenegados) => pons.pons
     .filter((p) => p.poblacion === poblacion)
     .map((pon) => {
-      const edificios = ordenarEdificios(elegibles(pon, hoy, excluidos, incluirDenegados), hoy, recientes);
+      const edificios = ordenarEdificios(elegibles(pon, hoy, excluidos, conDenegados, relajar), hoy, recientes);
       return {
         pon,
         edificios,
         centro: centroDePon(pon, geocodes),
-        // cuántos de sus edificios ya se propusieron estos días y no se hicieron: el PON pierde prioridad
-        repetidos: edificios.filter((e) => recientes.has(String(e.GESCAL26))).length
+        // cuántos de sus edificios se visitaron hace poco o ya se propusieron estos días y no se hicieron: el PON pierde prioridad
+        repetidos: edificios.filter((e) => recientes.has(String(e.GESCAL26)) || pocoDescansado(e, hoy)).length
       };
     })
     .filter((c) => c.edificios.length > 0);
+  const contar = (lista) => lista.reduce((a, c) => a + c.edificios.length, 0);
 
-  const disponibles = candidatos.reduce((a, c) => a + c.edificios.length, 0);
+  // Siempre se intenta llegar al objetivo (n visitas): si faltan edificios, primero se admiten los contactados
+  // hace menos de 7 días (los más antiguos antes) y, si aun así faltan, los denegados en tu hoja para reintentar.
+  const avisos = [];
+  let candidatos = construir(false, incluirDenegados);
+  if (contar(candidatos) < n) {
+    candidatos = construir(true, incluirDenegados);
+    if (contar(candidatos) < n && !incluirDenegados) {
+      const conDen = construir(true, true);
+      if (contar(conDen) > contar(candidatos)) {
+        candidatos = conDen;
+        avisos.push('Para llegar al objetivo se han incluido denegados de tu hoja (reintento de firma).');
+      }
+    }
+  }
+
+  const disponibles = contar(candidatos);
   if (disponibles === 0) return { vacio: true, motivo: 'sin-edificios' };
 
   const objetivoVisitas = Math.min(n, disponibles);
   const ubicados = candidatos.filter((c) => c.centro);
   const sinUbicar = candidatos.length - ubicados.length;
-  const avisos = [];
 
   // ---- 1. Grupo de PON cercanos entre sí ----
   let cluster = null;
@@ -247,6 +273,24 @@ export function proponerDia({
     if (total < objetivoVisitas) tomar(c, objetivoVisitas - total, (e) => e.llaves);
   });
 
+  // 2a'. Edificios a revisar a propósito (primero los de los PON del grupo cercano, luego los demás):
+  //  - REGESTIONAR en la web: la web pide volver a gestionarlos, entran todos (hasta completar el objetivo).
+  //  - Denegados de tu hoja (reintento de firma): solo un cupo pequeño.
+  const esRegest = (e) => String(e['ESTADO WEB'] || '').toUpperCase() === 'REGESTIONAR' && !esEstadoDenegado(e['ESTADO IC']);
+  const esDenegado = (e) => esEstadoDenegado(e['ESTADO IC']);
+  const prioridadCluster = cluster ? new Set(cluster.lista.map((c) => c.pon.id)) : new Set();
+  const ordenCluster = [...candidatos]
+    .sort((a, b) => (prioridadCluster.has(b.pon.id) ? 1 : 0) - (prioridadCluster.has(a.pon.id) ? 1 : 0));
+  ordenCluster.forEach((c) => {
+    if (total < objetivoVisitas) tomar(c, objetivoVisitas - total, esRegest);
+  });
+  let cupoDenegados = Math.max(3, Math.round(FRACCION_ESPECIALES * objetivoVisitas));
+  ordenCluster.forEach((c) => {
+    if (cupoDenegados > 0 && total < objetivoVisitas) {
+      cupoDenegados -= tomar(c, Math.min(cupoDenegados, objetivoVisitas - total), esDenegado);
+    }
+  });
+
   // 2b. PON de objetivo bajo (o 0) cerca del grupo, para poder declarar ahí más horas
   if (cluster) {
     const centro = mediaCentros(cluster.lista);
@@ -269,7 +313,7 @@ export function proponerDia({
   const base = cluster ? cluster.lista : [];
   const activos = base
     .filter((c) => !esBajo(c))
-    .sort((a, b) => b.edificios.length - a.edificios.length || dist(cluster.semilla.centro, a.centro) - dist(cluster.semilla.centro, b.centro));
+    .sort((a, b) => (b.edificios.length - b.repetidos) - (a.edificios.length - a.repetidos) || dist(cluster.semilla.centro, a.centro) - dist(cluster.semilla.centro, b.centro));
   for (const c of activos) {
     if (total >= objetivoVisitas) break;
     tomar(c, objetivoVisitas - total);
@@ -279,7 +323,7 @@ export function proponerDia({
   if (total < objetivoVisitas) {
     const centro = cluster ? mediaCentros(cluster.lista) : null;
     const resto = [...candidatos].sort((a, b) => {
-      if (!centro || !a.centro || !b.centro) return (b.centro ? 1 : 0) - (a.centro ? 1 : 0) || b.edificios.length - a.edificios.length;
+      if (!centro || !a.centro || !b.centro) return (b.centro ? 1 : 0) - (a.centro ? 1 : 0) || (b.edificios.length - b.repetidos) - (a.edificios.length - a.repetidos);
       return dist(centro, a.centro) - dist(centro, b.centro);
     });
     for (const c of resto) {
@@ -310,7 +354,11 @@ export function proponerDia({
   const { horas, coste, costeBase } = recomendarHoras(grupos.map((g) => ({ objetivo: g.pon.objetivo })), jornada);
   grupos.forEach((g, i) => { g.horas = horas[i]; });
 
-  if (total < n) avisos.push(`Solo hay ${total} edificios disponibles (no visitados en los últimos ${DIAS_SIN_REPETIR} días).`);
+  const repetidosHoy = grupos.flatMap((g) => g.edificios).filter((e) => !e.llaves && diasDesdeContacto(e, hoy) < DIAS_SIN_REPETIR).length;
+  if (repetidosHoy > 0) {
+    avisos.push(`Para completar las ${n} visitas se incluyen ${repetidosHoy} edificios contactados hace menos de ${DIAS_SIN_REPETIR} días (los de contacto más antiguo, primero).`);
+  }
+  if (total < n) avisos.push(`Solo hay ${total} edificios disponibles en esta población (quitando los visitados hoy).`);
   if (sinUbicar > 0) avisos.push(`${sinUbicar} PON aún sin ubicar en el mapa: la cercanía puede no ser perfecta.`);
 
   return {

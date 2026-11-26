@@ -103,6 +103,11 @@ export function esEstadoWebEnGestion(estado) {
   return ESTADOS_WEB_EN_GESTION.includes(sinTildes(estado));
 }
 
+/** REGESTIONAR: la web pide volver a gestionarlo, así que se propone aunque tu hoja lo tenga concedido o denegado. */
+export function esRegestionar(estado) {
+  return sinTildes(estado) === 'REGESTIONAR';
+}
+
 export function esEstadoEnGestion(estado) {
   return sinTildes(estado) === 'EN GESTION';
 }
@@ -192,10 +197,10 @@ export function construirPons(web, edificiosCRM = []) {
     if (!esEstadoWebEnGestion(fila['ESTADO-DE-PERMISO'])) {
       // La web lo tiene denegado, protegido, no aplica...: no se propone
       pon.fueraGestion.push(edificio);
-    } else if (esEstadoConcedido(estadoCrm)) {
+    } else if (!esRegestionar(fila['ESTADO-DE-PERMISO']) && esEstadoConcedido(estadoCrm)) {
       pon.pendientesSubir.push(edificio);
       pon.uuisPendientes += uuis;
-    } else if (esEstadoDenegado(estadoCrm)) {
+    } else if (!esRegestionar(fila['ESTADO-DE-PERMISO']) && esEstadoDenegado(estadoCrm)) {
       pon.denegadosCrm.push(edificio);
       pon.uuisDenegados += uuis;
     } else {

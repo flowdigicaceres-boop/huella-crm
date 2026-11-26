@@ -25,7 +25,8 @@ const km = (n) => `${n.toFixed(1).replace('.', ',')} km`;
 
 export default function PropuestaDia({ pons, visitas = [], webError, estado, setEstado, onSelectBuilding, onSelectPon, onBack }) {
   const [errorGps, setErrorGps] = useState('');
-  const incluirDenegados = Boolean(estado.incluirDenegados);
+  // Por defecto se incluyen los denegados de tu hoja (reintento de firma); se pueden quitar con la casilla
+  const incluirDenegados = estado.incluirDenegados !== false;
 
   const poblaciones = useMemo(() => {
     const cuenta = new Map();
@@ -82,7 +83,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
     const r = proponerDia({
       pons, poblacion: siguiente.poblacion, n: faltan, geocodes, hoy: new Date(),
       posicion: siguiente.posicion || null, semilla: siguiente.semilla, excluir: siguiente.excluidos,
-      jornada: siguiente.jornada, incluirDenegados: Boolean(siguiente.incluirDenegados),
+      jornada: siguiente.jornada, incluirDenegados: siguiente.incluirDenegados !== false,
       historial: leerHistorialPropuestas()
     });
     // Se anota lo propuesto para dar más variedad a los días siguientes (lo no hecho irá después)
