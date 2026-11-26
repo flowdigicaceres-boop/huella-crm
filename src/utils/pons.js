@@ -46,6 +46,25 @@ export function infoLlaves(fila, hoy = new Date()) {
   };
 }
 
+// La web da la fecha como CUMPLIDA cuando pasan más de 100 días sin contactar el edificio.
+export const DIAS_FECHA_CUMPLIDA = 100;
+
+/**
+ * Estado de la fecha tal como lo ve el CRM: si la web dice CUMPLIDA pero el edificio se ha visitado después
+ * (la web aún no lo sabe hasta que se declara en Digi y se vuelve a descargar), pasa a FECHA OK.
+ */
+export function estadoFechaActual(estadoWeb, ultimaVisita, fechaContactadoWeb, hoy = new Date()) {
+  const estado = String(estadoWeb || '').trim();
+  if (estado.toUpperCase() !== 'CUMPLIDA') return estado;
+  const visita = aFecha(normalizarFecha(ultimaVisita));
+  if (!visita) return estado;
+  const contactoWeb = aFecha(normalizarFecha(fechaContactadoWeb));
+  const hoy0 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+  const reciente = Math.round((hoy0 - visita) / 86400000) < DIAS_FECHA_CUMPLIDA;
+  const posteriorAlContacto = !contactoWeb || visita > contactoWeb;
+  return reciente && posteriorAlContacto ? 'FECHA OK' : estado;
+}
+
 export function estaCumplida(edificio) {
   return String(edificio['ESTADO_FECHA'] || '').trim().toUpperCase() === 'CUMPLIDA';
 }
@@ -103,8 +122,8 @@ function fusionarEdificio(fila, crm) {
     if (fila[campo] !== undefined && fila[campo] !== null && fila[campo] !== '') base[campo] = fila[campo];
   });
   base['ESTADO WEB'] = String(fila['ESTADO-DE-PERMISO'] || '').trim();
-  base['ESTADO_FECHA'] = String(fila['ESTADO_FECHA'] || '').trim();
   base['FECHA-CONTACTADO'] = normalizarFecha(fila['FECHA-CONTACTADO']);
+  base['ESTADO_FECHA'] = estadoFechaActual(fila['ESTADO_FECHA'], base['ULTIMA-VISITA'], base['FECHA-CONTACTADO']);
   base['TIPO-BLOQUEO'] = String(fila['TIPO-BLOQUEO'] || '').trim();
   base.llaves = infoLlaves(fila);
   base._soloWeb = !crm;

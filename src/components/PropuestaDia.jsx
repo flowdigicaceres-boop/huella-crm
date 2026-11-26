@@ -6,7 +6,9 @@ import {
   ArrowLeft, Sparkles, MapPin, Navigation, Layers, RefreshCw, KeyRound, AlertTriangle, CheckCircle,
   ChevronRight, Loader, Crosshair, Upload, XCircle
 } from 'lucide-react';
-import { proponerDia, visitablesDelPon, VISITAS_POR_DEFECTO, DIAS_SIN_REPETIR } from '../utils/propuesta';
+import {
+  proponerDia, visitablesDelPon, leerHistorialPropuestas, guardarPropuestaDeHoy, VISITAS_POR_DEFECTO, DIAS_SIN_REPETIR
+} from '../utils/propuesta';
 import { formatoHoras, horasDeJornada } from '../utils/horas';
 import { estaCumplida, esEstadoDenegado } from '../utils/pons';
 import { hoyDDMMYYYY } from '../utils/fechas';
@@ -80,8 +82,11 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
     const r = proponerDia({
       pons, poblacion: siguiente.poblacion, n: faltan, geocodes, hoy: new Date(),
       posicion: siguiente.posicion || null, semilla: siguiente.semilla, excluir: siguiente.excluidos,
-      jornada: siguiente.jornada, incluirDenegados: Boolean(siguiente.incluirDenegados)
+      jornada: siguiente.jornada, incluirDenegados: Boolean(siguiente.incluirDenegados),
+      historial: leerHistorialPropuestas()
     });
+    // Se anota lo propuesto para dar más variedad a los días siguientes (lo no hecho irá después)
+    if (!r.vacio) guardarPropuestaDeHoy(r.grupos.flatMap((g) => g.edificios.map((e) => e.GESCAL26)));
     setEstado({ ...siguiente, resultado: r });
   };
 
@@ -319,7 +324,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
                               : <span>{e['ESTADO WEB']}</span>}
                             {e['ULTIMA-VISITA'] ? <span>visitado {e['ULTIMA-VISITA']}</span> : <span>sin visitar</span>}
                             {e.llaves && <span className="font-bold text-rose-600 flex items-center"><KeyRound size={10} className="mr-0.5" />LLAVES</span>}
-                            {estaCumplida(e) && <span className="font-bold text-amber-700">CUMPLIDA</span>}
+                            {estaCumplida(actual) && <span className="font-bold text-amber-700">CUMPLIDA</span>}
                           </span>
                         </button>
                         {visitadoHoy ? (

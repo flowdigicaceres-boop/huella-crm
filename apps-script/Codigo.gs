@@ -138,6 +138,36 @@ function leerWeb_(ss, tz) {
   return { web: { filas: filas, pons: lista }, error: avisos.join(' ') };
 }
 
+// Tras visitar un edificio cuya fila de WEB tiene ESTADO_FECHA = CUMPLIDA, se cambia a FECHA OK
+// (la web real lo actualizará cuando se declare el contacto en Digi y se vuelva a pegar la descarga).
+function marcarFechaOk_(ss, gescal) {
+  var sh = ss.getSheetByName('WEB');
+  if (!sh) return false;
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return false;
+  var lastCol = sh.getLastColumn();
+  var headers = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+  var colGescal = -1, colFecha = -1;
+  for (var c = 0; c < headers.length; c++) {
+    var h = String(headers[c]).trim().toUpperCase();
+    if (h === 'GESCAL26' || h === 'GESCAL') colGescal = c + 1;
+    if (h === 'ESTADO_FECHA') colFecha = c + 1;
+  }
+  if (colGescal < 0 || colFecha < 0) return false;
+  var gescales = sh.getRange(2, colGescal, lastRow - 1, 1).getValues();
+  for (var i = 0; i < gescales.length; i++) {
+    if (String(gescales[i][0]).trim() === gescal) {
+      var celda = sh.getRange(i + 2, colFecha);
+      if (String(celda.getValue()).trim().toUpperCase() === 'CUMPLIDA') {
+        celda.setValue('FECHA OK');
+        return true;
+      }
+      return false;
+    }
+  }
+  return false;
+}
+
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -313,7 +343,13 @@ function doPost(e) {
       }
     }
 
-    return json_({ success: true, duplicada: duplicada });
+    // 3. WEB: si el edificio figuraba con la fecha CUMPLIDA, tras la visita pasa a FECHA OK
+    var fechaOk = false;
+    try {
+      fechaOk = marcarFechaOk_(ss, gescal);
+    } catch (errWeb) { /* un fallo aquí no debe impedir guardar la visita */ }
+
+    return json_({ success: true, duplicada: duplicada, fechaOk: fechaOk });
   } catch (err) {
     return json_({ success: false, error: err.message });
   } finally {

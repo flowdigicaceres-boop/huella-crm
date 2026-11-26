@@ -7,6 +7,9 @@ import { recomendarHoras, horasDeJornada } from './horas.js';
 
 export const VISITAS_POR_DEFECTO = 20;
 export const DIAS_SIN_REPETIR = 7;          // no se proponen edificios visitados en los últimos 7 días
+export const DIAS_SIN_REPETIR_LLAVES = 5;   // los de fecha de llaves son prioritarios, pero no se repiten antes de 5 días
+export const DIAS_HISTORIAL_PROPUESTAS = 3; // lo propuesto en los 3 días anteriores y no hecho pasa a ir después
+const PENALIZACION_REPETIDO_KM = 0.08;      // cada edificio ya propuesto y no hecho "aleja" 80 m a su PON (más variedad)
 export const OBJETIVO_BAJO = 3.75;          // "objetivo bajo": 3,75 o menos (incluye los finalizados, 0)
 export const MAX_PONS_BAJOS = 3;            // como mucho 3 PON de objetivo bajo
 export const FRACCION_VISITAS_BAJAS = 0.3;  // alrededor de un 30 % de las visitas van a PON de objetivo bajo
@@ -18,12 +21,57 @@ function aFecha(dmy) {
   return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
 }
 
-/** Días desde la última visita; Infinity si nunca se visitó. */
+/** Días desde una fecha dd/mm/yyyy; Infinity si no hay fecha. */
 export function diasDesde(dmy, hoy) {
   const f = aFecha(dmy);
   if (!f) return Infinity;
   const hoy0 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
   return Math.round((hoy0 - f) / 86400000);
+}
+
+/** Días desde el último contacto: la última visita registrada en el CRM o la última vez declarado Contactado en la web (la más reciente). */
+export function diasDesdeContacto(e, hoy) {
+  return Math.min(diasDesde(e['ULTIMA-VISITA'], hoy), diasDesde(e['FECHA-CONTACTADO'], hoy));
+}
+
+/**
+ * Edificios que ya se propusieron en los últimos días (sin contar hoy) y no se visitaron.
+ * historial: { 'dd/mm/yyyy': [GESCAL26, ...] }. Devuelve Map GESCAL26 -> veces propuesto.
+ */
+export function propuestasRecientes(historial = {}, hoy = new Date(), dias = DIAS_HISTORIAL_PROPUESTAS) {
+  const m = new Map();
+  Object.entries(historial || {}).forEach(([fecha, lista]) => {
+    const d = diasDesde(fecha, hoy);
+    if (d >= 1 && d <= dias && Array.isArray(lista)) {
+      lista.forEach((g) => m.set(String(g), (m.get(String(g)) || 0) + 1));
+    }
+  });
+  return m;
+}
+
+const CLAVE_HISTORIAL = 'huella_propuestas_historial';
+
+/** Historial de lo que se ha propuesto cada día (guardado en el móvil). */
+export function leerHistorialPropuestas() {
+  try {
+    const raw = localStorage.getItem(CLAVE_HISTORIAL);
+    const h = raw ? JSON.parse(raw) : {};
+    return h && typeof h === 'object' ? h : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+/** Anota los edificios propuestos hoy (suma a lo ya propuesto hoy) y olvida lo de hace más de 10 días. */
+export function guardarPropuestaDeHoy(gescales, hoy = new Date()) {
+  try {
+    const p = (n) => String(n).padStart(2, '0');
+    const clave = `${p(hoy.getDate())}/${p(hoy.getMonth() + 1)}/${hoy.getFullYear()}`;
+    const h = leerHistorialPropuestas();
+    h[clave] = Array.from(new Set([...(h[clave] || []), ...gescales.map(String)]));
+    Object.keys(h).forEach((f) => { if (diasDesde(f, hoy) > 10) delete h[f]; });
+    localStorage.setItem(CLAVE_HISTORIAL, JSON.stringify(h));
+  } catch (e) { /* sin almacenamiento: no pasa nada */ }
 }
 
 function prioridadEstado(e) {
@@ -32,15 +80,18 @@ function prioridadEstado(e) {
   return web === 'EN GESTION' ? 0 : 1;               // REGESTIONAR un poco después
 }
 
-/** Dentro de un PON: llaves primero, luego En gestión/Regestionar, luego los visitados hace más tiempo. */
-function ordenarEdificios(lista, hoy) {
+/** Dentro de un PON: llaves primero, luego lo no propuesto estos días, En gestión/Regestionar, y los contactados hace más tiempo. */
+function ordenarEdificios(lista, hoy, recientes) {
+  const veces = (e) => recientes.get(String(e.GESCAL26)) || 0;
   return [...lista].sort((a, b) => {
     const llaves = (b.llaves ? 1 : 0) - (a.llaves ? 1 : 0);
     if (llaves) return llaves;
+    const repetido = veces(a) - veces(b);                 // lo que ya se propuso y no se hizo, después
+    if (repetido) return repetido;
     const estado = prioridadEstado(a) - prioridadEstado(b);
     if (estado) return estado;
-    const da = diasDesde(a['ULTIMA-VISITA'], hoy);
-    const db = diasDesde(b['ULTIMA-VISITA'], hoy);
+    const da = diasDesdeContacto(a, hoy);
+    const db = diasDesdeContacto(b, hoy);
     if (da === db) return 0;
     return db > da ? 1 : -1;
   });
@@ -54,9 +105,11 @@ export function visitablesDelPon(pon, incluirDenegados = false) {
 function elegibles(pon, hoy, excluidos, incluirDenegados) {
   return visitablesDelPon(pon, incluirDenegados).filter((e) => {
     if (excluidos.has(String(e.GESCAL26))) return false;
-    if (e.llaves) return true;                                   // las de llaves entran siempre
+    const dias = diasDesdeContacto(e, hoy);
+    // Con fecha de llaves entran aunque lleven poco tiempo, pero no todos los días: se respeta un margen más corto
+    if (e.llaves) return dias >= DIAS_SIN_REPETIR_LLAVES;
     if (pon.id === SIN_PON) return false;   // "sin PON" no es un PON real (edificios dispersos): solo si tienen llaves
-    return diasDesde(e['ULTIMA-VISITA'], hoy) >= DIAS_SIN_REPETIR;
+    return dias >= DIAS_SIN_REPETIR;
   });
 }
 
@@ -76,7 +129,11 @@ function clusterDesde(semilla, ubicados, meta, metaActivos) {
     if (suma >= meta && sumaActivos >= metaActivos) break;
   }
   const radio = lista.length > 1 ? dist(semilla.centro, lista[lista.length - 1].centro) : 0;
-  return { semilla, lista, suma, radio, score: radio + PENALIZACION_POR_PON_KM * lista.length };
+  const repetidos = lista.reduce((a, c) => a + c.repetidos, 0);
+  return {
+    semilla, lista, suma, radio,
+    score: radio + PENALIZACION_POR_PON_KM * lista.length + PENALIZACION_REPETIDO_KM * repetidos
+  };
 }
 
 function mediaCentros(lista) {
@@ -116,18 +173,25 @@ function ordenarRecorrido(grupos, salida) {
  */
 export function proponerDia({
   pons, poblacion, n = VISITAS_POR_DEFECTO, geocodes = {}, hoy = new Date(),
-  posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy), incluirDenegados = false
+  posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy), incluirDenegados = false,
+  historial = {}
 }) {
   if (!pons) return { vacio: true, motivo: 'sin-datos' };
   const excluidos = new Set(excluir.map(String));
+  const recientes = propuestasRecientes(historial, hoy);
 
   const candidatos = pons.pons
     .filter((p) => p.poblacion === poblacion)
-    .map((pon) => ({
-      pon,
-      edificios: ordenarEdificios(elegibles(pon, hoy, excluidos, incluirDenegados), hoy),
-      centro: centroDePon(pon, geocodes)
-    }))
+    .map((pon) => {
+      const edificios = ordenarEdificios(elegibles(pon, hoy, excluidos, incluirDenegados), hoy, recientes);
+      return {
+        pon,
+        edificios,
+        centro: centroDePon(pon, geocodes),
+        // cuántos de sus edificios ya se propusieron estos días y no se hicieron: el PON pierde prioridad
+        repetidos: edificios.filter((e) => recientes.has(String(e.GESCAL26))).length
+      };
+    })
     .filter((c) => c.edificios.length > 0);
 
   const disponibles = candidatos.reduce((a, c) => a + c.edificios.length, 0);
@@ -146,9 +210,11 @@ export function proponerDia({
     const metaActivos = Math.ceil((objetivoVisitas - cuotaBajos) * COLCHON_CLUSTER);
     let semillas;
     if (posicion) {
-      semillas = [...ubicados].sort((a, b) => dist(posicion, a.centro) - dist(posicion, b.centro)).slice(0, 15);
+      // Cercanía a tu posición, pero un PON cuyos edificios ya se propusieron estos días y no se hicieron cede el puesto a otro
+      const lejania = (c) => dist(posicion, c.centro) + PENALIZACION_REPETIDO_KM * c.repetidos;
+      semillas = [...ubicados].sort((a, b) => lejania(a) - lejania(b)).slice(0, 15);
     } else {
-      semillas = [...ubicados].sort((a, b) => b.edificios.length - a.edificios.length).slice(0, 15);
+      semillas = [...ubicados].sort((a, b) => (b.edificios.length - b.repetidos) - (a.edificios.length - a.repetidos)).slice(0, 15);
     }
     const vistos = new Set();
     const ranking = [];
