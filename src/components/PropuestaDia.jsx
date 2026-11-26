@@ -9,7 +9,7 @@ import {
 import {
   proponerDia, visitablesDelPon, leerHistorialPropuestas, guardarPropuestaDeHoy, VISITAS_POR_DEFECTO, DIAS_SIN_REPETIR
 } from '../utils/propuesta';
-import { formatoHoras, horasDeJornada } from '../utils/horas';
+import { formatoHoras, formatoTramos } from '../utils/horas';
 import { estaCumplida, esEstadoDenegado } from '../utils/pons';
 import { hoyDDMMYYYY } from '../utils/fechas';
 import { idsVisitadosHoy } from '../utils/jornada';
@@ -84,7 +84,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
       pons, poblacion: siguiente.poblacion, n: faltan, geocodes, hoy: new Date(),
       posicion: siguiente.posicion || null, semilla: siguiente.semilla, excluir: siguiente.excluidos,
       jornada: siguiente.jornada, incluirDenegados: siguiente.incluirDenegados !== false,
-      historial: leerHistorialPropuestas()
+      historial: leerHistorialPropuestas(), otrasHoras: Number(siguiente.otrasHoras) || 0
     });
     // Se anota lo propuesto para dar más variedad a los días siguientes (lo no hecho irá después)
     if (!r.vacio) guardarPropuestaDeHoy(r.grupos.flatMap((g) => g.edificios.map((e) => e.GESCAL26)));
@@ -157,7 +157,7 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
         </p>
 
         <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
-          <span>Jornada: <strong className="text-slate-700">{estado.jornada} h</strong> {estado.jornada === 7 ? '(viernes)' : ''}</span>
+          <span>Jornada: <strong className="text-slate-700">{estado.jornada} h</strong> {estado.jornada === 7 ? '(viernes · 8:00–15:00)' : '(9:00–14:00 y 15:00–18:00)'}</span>
           <button
             type="button"
             onClick={usarPosicion}
@@ -170,6 +170,23 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
           </button>
         </div>
         {errorGps && <p className="text-[11px] font-semibold text-rose-600">{errorGps}</p>}
+
+        <label className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
+          <span>Horas de otros trabajos hoy <span className="text-slate-400">(se dejan libres al final de la jornada)</span></span>
+          <input
+            type="number"
+            min="0"
+            max={estado.jornada}
+            step="0.25"
+            value={estado.otrasHoras ?? 0}
+            onChange={(e) => {
+              const v = Math.max(0, Math.min(estado.jornada, Number(e.target.value) || 0));
+              if (resultado && !resultado.vacio) calcular({ otrasHoras: v });
+              else setEstado({ ...estado, otrasHoras: v });
+            }}
+            className="w-16 bg-slate-50 border border-slate-200 rounded-lg text-xs font-bold px-2 py-1 text-slate-800 text-right shrink-0 ml-2"
+          />
+        </label>
 
         {pendientes > 0 && (
           <p className="text-[11px] text-slate-500 flex items-center">
@@ -257,6 +274,11 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
             <p className="text-xs text-blue-100">
               Zona de {km(resultado.dispersionKm)} · recorrido aprox. {km(resultado.kmRecorrido)} · jornada de {resultado.jornada} h
             </p>
+            {resultado.otrasHoras > 0 && (
+              <p className="text-[11px] text-blue-100">
+                Otros trabajos: {formatoHoras(resultado.otrasHoras)} ({formatoTramos(resultado.reservadas)}) · para los partes quedan {formatoHoras(resultado.horasVisitas)}.
+              </p>
+            )}
             <p className="text-[11px] text-blue-100">
               Objetivo equivalente de las horas recomendadas: <strong>{resultado.coste.toFixed(1).replace('.', ',')}</strong> UUIs
               (con las mismas horas en todos los PON serían {resultado.costeBase.toFixed(1).replace('.', ',')}).
@@ -307,6 +329,9 @@ export default function PropuestaDia({ pons, visitas = [], webError, estado, set
                   <div className="text-right shrink-0">
                     <span className="block text-[10px] font-bold text-slate-400 uppercase">Horas</span>
                     <span className="block text-sm font-extrabold text-blue-600">{formatoHoras(g.horas)}</span>
+                    {g.horario && g.horario.length > 0 && (
+                      <span className="block text-[11px] font-bold text-slate-700 mt-0.5">{formatoTramos(g.horario)}</span>
+                    )}
                   </div>
                 </div>
 

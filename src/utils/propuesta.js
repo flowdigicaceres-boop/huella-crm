@@ -3,7 +3,9 @@
 // sin mandarte de un extremo a otro de la población, e incluye algún PON de objetivo bajo
 // para poder declarar ahí horas sin cargarte objetivo. Es una SUGERENCIA: no escribe nada.
 import { centroDePon, distanciaKm, esEstadoDenegado, SIN_PON } from './pons.js';
-import { recomendarHoras, horasDeJornada } from './horas.js';
+import {
+  recomendarHoras, horasDeJornada, bloquesDeJornada, repartirOtrasHoras, planificarHorario
+} from './horas.js';
 
 export const VISITAS_POR_DEFECTO = 20;
 export const DIAS_SIN_REPETIR = 7;          // no se proponen edificios visitados en los últimos 7 días
@@ -185,7 +187,7 @@ function ordenarRecorrido(grupos, salida) {
 export function proponerDia({
   pons, poblacion, n = VISITAS_POR_DEFECTO, geocodes = {}, hoy = new Date(),
   posicion = null, semilla = 0, excluir = [], jornada = horasDeJornada(hoy), incluirDenegados = true,
-  historial = {}
+  historial = {}, otrasHoras = 0
 }) {
   if (!pons) return { vacio: true, motivo: 'sin-datos' };
   const excluidos = new Set(excluir.map(String));
@@ -351,8 +353,16 @@ export function proponerDia({
   let dispersionKm = 0;
   conCentro.forEach((a) => conCentro.forEach((b) => { dispersionKm = Math.max(dispersionKm, dist(a.centro, b.centro)); }));
 
-  const { horas, coste, costeBase } = recomendarHoras(grupos.map((g) => ({ objetivo: g.pon.objetivo })), jornada);
-  grupos.forEach((g, i) => { g.horas = horas[i]; });
+  // Horario: 9-14 y 15-18 (lunes a jueves) o 8-15 (viernes). Las horas de otros trabajos se dejan libres al final de la jornada
+  // y el resto se reparte entre los partes, que se colocan uno tras otro desde la hora de entrada sin cruzar el descanso.
+  const bloques = bloquesDeJornada(hoy);
+  const jornadaTotal = horasDeJornada(hoy);
+  const otras = Math.min(jornadaTotal, Math.max(0, Math.round((Number(otrasHoras) || 0) * 4) / 4));
+  const { libres, reservadas } = repartirOtrasHoras(bloques, otras);
+  const horasVisitas = jornadaTotal - otras;
+  const { horas: horasBase, coste, costeBase } = recomendarHoras(grupos.map((g) => ({ objetivo: g.pon.objetivo })), horasVisitas);
+  const { horas, horarios } = horasVisitas > 0 ? planificarHorario(horasBase, libres) : { horas: horasBase, horarios: horasBase.map(() => []) };
+  grupos.forEach((g, i) => { g.horas = horas[i]; g.horario = horarios[i]; });
 
   const repetidosHoy = grupos.flatMap((g) => g.edificios).filter((e) => !e.llaves && diasDesdeContacto(e, hoy) < DIAS_SIN_REPETIR).length;
   if (repetidosHoy > 0) {
@@ -364,7 +374,10 @@ export function proponerDia({
   return {
     vacio: false,
     grupos,
-    jornada,
+    jornada: jornadaTotal,
+    otrasHoras: otras,
+    horasVisitas,
+    reservadas,
     nVisitas: total,
     objetivoVisitas: n,
     coste,
